@@ -1,3 +1,10 @@
+import {
+  clearYuantaCache,
+  loadYuantaStockBundle,
+  loadYuantaUniverse,
+  renderYuantaStockTabs,
+} from './yuanta_view.mjs';
+
 const DATASET_NAMES = [
   'funds', 'holdings', 'nav_history', 'portfolio_events', 'fund_facts',
   'data_quality', 'data_quality_summary', 'source_events', 'pipeline_status',
@@ -655,13 +662,38 @@ function eventWhy(event) {
   return 'Không có giải thích phân loại cụ thể; cần kiểm tra dữ liệu nguồn và quy tắc pipeline trước khi diễn giải.';
 }
 
-function stockRecords(data) {
+function stockRecords(data, yuantaUniverse = null) {
   const holdings = records(data, 'holdings');
   const events = records(data, 'portfolio_events');
   const map = new Map();
+  for (const u of yuantaUniverse?.stocks || []) {
+    if (!u?.symbol) continue;
+    map.set(u.symbol, {
+      ticker: u.symbol,
+      company_name: u.company_name || null,
+      exchange: u.exchange || null,
+      macro_group: u.macro_group || null,
+      macro_group_label: u.macro_group_label || null,
+      sub_group_label: u.sub_group_label || u.sector_name || null,
+      last_price: u.last_price ?? null,
+      pe: u.pe ?? null,
+      stock_rating: u.stock_rating ?? null,
+      funds: new Set(),
+      event_count: 0,
+      latest_date: u.scanned_at ? String(u.scanned_at).slice(0, 10) : null,
+      coverage: new Set(),
+      has_yuanta: true,
+    });
+  }
   for (const item of [...holdings, ...events]) {
     if (!item.ticker) continue;
-    if (!map.has(item.ticker)) map.set(item.ticker, { ticker: item.ticker, funds: new Set(), event_count: 0, latest_date: null, coverage: new Set() });
+    if (!map.has(item.ticker)) {
+      map.set(item.ticker, {
+        ticker: item.ticker, company_name: null, exchange: null, macro_group: null,
+        macro_group_label: null, sub_group_label: null, last_price: null, pe: null, stock_rating: null,
+        funds: new Set(), event_count: 0, latest_date: null, coverage: new Set(), has_yuanta: false,
+      });
+    }
     const row = map.get(item.ticker);
     if (item.fund) row.funds.add(item.fund);
     if (item.event_id) row.event_count += 1;
@@ -669,7 +701,12 @@ function stockRecords(data) {
     if (date && (!row.latest_date || date > row.latest_date)) row.latest_date = date;
     if (item.coverage_type) row.coverage.add(item.coverage_type);
   }
-  return [...map.values()].map((row) => ({ ...row, funds: [...row.funds].sort(COLLATOR.compare), coverage: [...row.coverage] })).sort((a, b) => COLLATOR.compare(a.ticker, b.ticker));
+  return [...map.values()].map((row) => ({
+    ...row,
+    funds_count: row.funds.size,
+    funds: [...row.funds].sort(COLLATOR.compare),
+    coverage: [...row.coverage],
+  })).sort((a, b) => COLLATOR.compare(a.ticker, b.ticker));
 }
 function readWatchlist() {
   try {
@@ -681,25 +718,59 @@ function saveWatchlist(items) {
   try { localStorage.setItem('vnfa-watchlist-v1', JSON.stringify([...new Set(items)].slice(0, 100))); } catch { /* storage may be disabled */ }
 }
 function renderStocks(data, params) {
-  const q = (params.get('q') || '').trim().toUpperCase();
+  const yuantaUniverse = data.yuantaUniverse || { status: 'not_synced', count: 0, stocks: [] };
+  const q = (params.get('q') || '').trim();
+  const qLower = q.toLocaleLowerCase('vi');
+  const exFilter = (params.get('exchange') || '').trim().toUpperCase();
+  const mgFilter = (params.get('mgroup') || '').trim().toUpperCase();
   const selected = (params.get('ticker') || '').trim().toUpperCase();
-  const allStocks = stockRecords(data);
-  const filtered = allStocks.filter((row) => !q || row.ticker.includes(q));
+  const stab = params.get('stab') || (yuantaUniverse.status === 'available' ? 'overview' : 'funds');
+  const allStocks = stockRecords(data, yuantaUniverse);
+  const filtered = allStocks.filter((row) => {
+    if (exFilter && row.exchange !== exFilter) return false;
+    if (mgFilter && row.macro_group !== mgFilter) return false;
+    if (!qLower) return true;
+    const hay = `${row.ticker} ${row.company_name || ''} ${row.sub_group_label || ''}`.toLocaleLowerCase('vi');
+    return hay.includes(qLower);
+  });
   const sorted = applySortPage(filtered, params, 'ticker');
-  const body = sorted.rows.map((row) => `<tr><td><a class="ticker-link mono" href="?view=stocks&ticker=${encodeURIComponent(row.ticker)}" data-route>${esc(row.ticker)}</a></td><td>${row.funds.map((fund) => `<a class="small-link mono fund-pill" href="?view=funds&fund=${encodeURIComponent(fund)}" data-route>${esc(fund)}</a>`).join(' ') || '—'}</td><td class="numeric">${row.event_count ? integer(row.event_count) : 'Chưa có event'}</td><td>${row.latest_date ? dateText(row.latest_date) : 'Ngày chưa biết'}</td><td>${row.coverage.map((kind) => kind === 'top_n_partial_censored' ? 'Top-N · censored' : 'Source claimed full').map(esc).join(', ') || 'Chưa xác định'}</td></tr>`).join('');
+  const defaultTab = yuantaUniverse.status === 'available' ? 'overview' : 'funds';
+  const body = sorted.rows.map((row) => `<tr><td><a class="ticker-link mono" href="?view=stocks&ticker=${encodeURIComponent(row.ticker)}&stab=${defaultTab}" data-route>${esc(row.ticker)}</a>${row.company_name ? `<span class="table-sub">${esc(row.company_name)}</span>` : ''}</td><td>${esc(row.exchange || '—')}</td><td>${esc(row.sub_group_label || row.macro_group_label || '—')}</td><td>${row.funds.slice(0, 6).map((fund) => `<a class="small-link mono fund-pill" href="?view=funds&fund=${encodeURIComponent(fund)}" data-route>${esc(fund)}</a>`).join(' ') || '—'}${row.funds.length > 6 ? ` <span class="muted">+${row.funds.length - 6}</span>` : ''}</td><td class="numeric">${row.pe == null ? '—' : number(row.pe, 1)}</td><td class="numeric">${row.stock_rating == null ? '—' : number(row.stock_rating, 0)}</td></tr>`).join('');
   const watchlist = readWatchlist();
   const fundRows = records(data, 'holdings').filter((row) => row.ticker === selected);
   const eventRows = records(data, 'portfolio_events').filter((row) => row.ticker === selected).sort((a, b) => (b.observed_date || '').localeCompare(a.observed_date || ''));
   const currentSelected = allStocks.find((row) => row.ticker === selected);
-  const selectedView = selected ? `<section class="panel stock-detail"><div class="panel-header"><div><div class="stock-ticker">${esc(selected)}</div><p>Reported fund ownership · không phải tín hiệu mua/bán</p></div><button class="button watch-button" type="button" data-watch="${esc(selected)}" aria-pressed="${watchlist.includes(selected)}">${watchlist.includes(selected) ? '✓ Đang theo dõi' : '+ Thêm watchlist'}</button></div>
-    ${currentSelected ? `<p class="muted">Xuất hiện trong ${integer(currentSelected.funds.length)} quỹ có dữ liệu đã export. Ngày mới nhất: ${esc(currentSelected.latest_date ? dateText(currentSelected.latest_date) : 'chưa biết')}.</p>` : notice('Chưa có bằng chứng ownership', `Không tìm thấy ${selected} trong holdings hoặc event export.`, 'warning')}
-    ${fundRows.length ? tableHtml([{ key: 'fund', label: 'Quỹ', sortable: false }, { key: 'weight', label: 'Tỷ trọng báo cáo', numeric: true, sortable: false }, { key: 'volume', label: 'Khối lượng', numeric: true, sortable: false }, { key: 'observed_date', label: 'Ngày snapshot', sortable: false }, { key: 'effective_date', label: 'Ngày nguồn', sortable: false }, { key: 'coverage_type', label: 'Độ phủ', sortable: false }, { key: 'source_reference', label: 'Source', sortable: false }], fundRows.map((row) => `<tr><td><a class="fund-link mono" href="?view=funds&fund=${encodeURIComponent(row.fund)}" data-route>${esc(row.fund)}</a></td><td class="numeric">${esc(percentFraction(row.weight))}</td><td class="numeric">${esc(integer(row.volume))}</td><td>${esc(row.observed_date ? dateText(row.observed_date) : 'Chưa biết')}</td><td>${esc(row.effective_date ? dateText(row.effective_date) : 'Chưa biết')}</td><td>${esc(row.coverage_type)}</td><td>${sourceLink(row.source_reference)}</td></tr>`).join('')) : emptyPanel('Chưa có holdings record', 'Không có snapshot mã này trong export. Không suy missing thành zero.', '⌕')}
-    <div class="section-heading"><div><h3>Portfolio events</h3><p>Chỉ sự kiện quan sát / suy luận của pipeline.</p></div></div>${eventRows.length ? tableHtml([{ key: 'observed_date', label: 'Ngày', sortable: false }, { key: 'fund', label: 'Quỹ', sortable: false }, { key: 'display_label', label: 'Phân loại', sortable: false }, { key: 'basis', label: 'Basis', sortable: false }, { key: 'flag', label: 'Cờ', sortable: false }], eventRows.map((row) => `<tr><td>${esc(row.observed_date ? dateText(row.observed_date) : 'Chưa biết')}</td><td>${esc(row.fund)}</td><td>${badge(row.display_label, 'warning')}</td><td>${esc(row.basis || '—')}</td><td>${esc(row.flag || '—')}</td></tr>`).join('')) : emptyPanel('Chưa có event', 'Không có sự kiện được lưu cho mã này.', '⇄')}</section>` : '';
-  const watchHtml = watchlist.length ? `<div class="watchlist">${watchlist.map((ticker) => `<span class="watch-chip"><a href="?view=stocks&ticker=${encodeURIComponent(ticker)}" data-route>${esc(ticker)}</a><button type="button" data-watch-remove="${esc(ticker)}" aria-label="Xóa ${esc(ticker)} khỏi watchlist">×</button></span>`).join('')}</div>` : `<p class="muted">Watchlist lưu trong localStorage của trình duyệt này; chưa có mã theo dõi.</p>`;
+  const bundleEntry = selected ? (window.__YUANTA_BUNDLES?.get(selected) || null) : null;
+  const { nav: subTabNav, body: yuantaTabBody } = selected
+    ? renderYuantaStockTabs(selected, stab, bundleEntry, params)
+    : { nav: '', body: null };
+
+  const fundOwnershipBody = `${currentSelected?.funds?.length ? `<p class="muted">Xuất hiện trong ${integer(currentSelected.funds.length)} quỹ mở có dữ liệu đã export. Ngày mới nhất: ${esc(currentSelected.latest_date ? dateText(currentSelected.latest_date) : 'chưa biết')}.</p>` : notice('Chưa ghi nhận trong Top-N quỹ mở', `Không tìm thấy ${selected} trong snapshot Top-N hoặc event export của quỹ mở (mã vẫn có thể xem đủ 5 trang dữ liệu thị trường Yuanta ở các tab bên cạnh).`, 'warning')}
+    ${fundRows.length ? tableHtml([{ key: 'fund', label: 'Quỹ', sortable: false }, { key: 'weight', label: 'Tỷ trọng báo cáo', numeric: true, sortable: false }, { key: 'volume', label: 'Khối lượng', numeric: true, sortable: false }, { key: 'observed_date', label: 'Ngày snapshot', sortable: false }, { key: 'effective_date', label: 'Ngày nguồn', sortable: false }, { key: 'coverage_type', label: 'Độ phủ', sortable: false }, { key: 'source_reference', label: 'Source', sortable: false }], fundRows.map((row) => `<tr><td><a class="fund-link mono" href="?view=funds&fund=${encodeURIComponent(row.fund)}" data-route>${esc(row.fund)}</a></td><td class="numeric">${esc(percentFraction(row.weight))}</td><td class="numeric">${esc(integer(row.volume))}</td><td>${esc(row.observed_date ? dateText(row.observed_date) : 'Chưa biết')}</td><td>${esc(row.effective_date ? dateText(row.effective_date) : 'Chưa biết')}</td><td>${topNCoverageBadge(row.coverage_type)}</td><td>${sourceLink(row.source_reference)}</td></tr>`).join('')) : emptyPanel('Chưa có holdings record', 'Không có snapshot quỹ mở cho mã này trong export. Không suy missing thành zero.', '⌕')}
+    <div class="section-heading"><div><h3>Portfolio events (Quỹ mở)</h3><p>Chỉ sự kiện quan sát / suy luận của pipeline quỹ mở.</p></div></div>${eventRows.length ? tableHtml([{ key: 'observed_date', label: 'Ngày', sortable: false }, { key: 'fund', label: 'Quỹ', sortable: false }, { key: 'display_label', label: 'Phân loại', sortable: false }, { key: 'basis', label: 'Basis', sortable: false }, { key: 'flag', label: 'Cờ', sortable: false }], eventRows.map((row) => `<tr><td>${esc(row.observed_date ? dateText(row.observed_date) : 'Chưa biết')}</td><td>${esc(row.fund)}</td><td>${badge(row.display_label, 'warning')}</td><td>${esc(row.basis || '—')}</td><td>${esc(row.flag || '—')}</td></tr>`).join('')) : emptyPanel('Chưa có event', 'Không có sự kiện quỹ mở được lưu cho mã này.', '⇄')}`;
+
+  const selectedView = selected ? `<section class="panel stock-detail"><div class="panel-header"><div><div class="stock-ticker"><h2>${esc(selected)}</h2>${currentSelected?.exchange ? badge(currentSelected.exchange, 'neutral') : ''}${currentSelected?.macro_group_label ? badge(currentSelected.macro_group_label, 'ok') : ''}</div><p>${esc(currentSelected?.company_name || 'Tra cứu sở hữu quỹ mở & 5 phân hệ dữ liệu Yuanta YSradar (tĩnh)')}</p></div><button class="button watch-button" type="button" data-watch="${esc(selected)}" aria-pressed="${watchlist.includes(selected)}">${watchlist.includes(selected) ? '✓ Đang theo dõi' : '+ Thêm watchlist'}</button></div>
+    ${subTabNav}
+    ${stab === 'funds' ? fundOwnershipBody : yuantaTabBody}
+  </section>` : '';
+
+  const watchHtml = watchlist.length ? `<div class="watchlist">${watchlist.map((ticker) => `<span class="watch-chip"><a href="?view=stocks&ticker=${encodeURIComponent(ticker)}&stab=${defaultTab}" data-route>${esc(ticker)}</a><button type="button" data-watch-remove="${esc(ticker)}" aria-label="Xóa ${esc(ticker)} khỏi watchlist">×</button></span>`).join('')}</div>` : `<p class="muted">Watchlist lưu trong localStorage của trình duyệt này; chưa có mã theo dõi.</p>`;
   const stockDataNotice = `${datasetStatusNotice(envelope(data, 'holdings'), 'Holdings')}${datasetStatusNotice(envelope(data, 'portfolio_events'), 'Portfolio events')}`;
-  return `${pageIntro('STOCK RESEARCH', 'Nghiên cứu mã', 'Bằng chứng hiện có chỉ là mã được báo cáo trong holdings và các thay đổi do pipeline phát hiện. Không có fundamentals, định giá, giá thị trường hoặc transaction-level data.')}${stockDataNotice}
-    <div class="stock-layout"><section class="panel"><div class="panel-header"><div><h3>Mã xuất hiện trong dữ liệu quỹ</h3><p>${allStocks.length ? `${integer(allStocks.length)} mã có record trong export.` : 'Chưa có mã được export.'}</p></div></div><form class="control-bar" data-filter-form><div class="field grow"><label for="stock-search">Tìm ticker</label><input id="stock-search" name="q" type="search" value="${esc(q)}" placeholder="VD: FPT"></div><button class="button primary" type="submit">Tìm</button><button class="button" type="button" data-action="reset-filters">Đặt lại</button></form>${allStocks.length ? tableHtml([{ key: 'ticker', label: 'Ticker' }, { key: 'funds', label: 'Quỹ báo cáo' }, { key: 'event_count', label: 'Event count', numeric: true }, { key: 'latest_date', label: 'Ngày cuối' }, { key: 'coverage', label: 'Độ phủ' }], body) + paginationHtml(sorted) : emptyPanel('Chưa có stock evidence', 'Danh mục chưa có trong archive. Không tạo mã ví dụ.', '⌕')}</section>
-    <div class="stacked-panels">${panel('Watchlist cá nhân', 'Lưu cục bộ trên thiết bị hiện tại; không gửi lên server.', watchHtml)}${panel('Dữ liệu chưa có', 'Không tự động lấp các phần thiếu bằng giả định.', `<div class="unavailable-grid"><div class="unavailable-item"><strong>Company fundamentals</strong><span>Chưa có nguồn / dataset.</span></div><div class="unavailable-item"><strong>Valuation / target price</strong><span>Không được tính.</span></div><div class="unavailable-item"><strong>Confirmed transactions</strong><span>Không có blotter.</span></div></div>`)}</div></div>${selectedView}`;
+  const yuantaStatusBox = yuantaUniverse.status === 'available'
+    ? `<div class="unavailable-grid"><div class="unavailable-item"><strong>Độ phủ 3 sàn Yuanta</strong><span>${integer(yuantaUniverse.count)} mã (HOSE: ${integer(yuantaUniverse.by_exchange?.HOSE || 0)}, HNX: ${integer(yuantaUniverse.by_exchange?.HNX || 0)}, UPCOM: ${integer(yuantaUniverse.by_exchange?.UPCOM || 0)})</span></div><div class="unavailable-item"><strong>Phân tách 3 khối ngành</strong><span>Ngân hàng (${integer(yuantaUniverse.by_macro_group?.BANK || 0)}) · TC phi NH (${integer(yuantaUniverse.by_macro_group?.NON_BANK_FINANCIAL || 0)}) · Phi TC &amp; BĐS (${integer(yuantaUniverse.by_macro_group?.NON_FINANCIAL || 0)})</span></div></div>`
+    : `<div class="unavailable-grid"><div class="unavailable-item"><strong>Dữ liệu 3 sàn Yuanta (Trang 1–5)</strong><span>Chưa đồng bộ gói .json.gz tĩnh</span></div><div class="unavailable-item"><strong>Lệnh quét toàn sàn</strong><span><code>python scripts/scan_yuanta_universe.py</code></span></div></div>`;
+
+  return `${pageIntro('STOCK RESEARCH · 3 EXCHANGES', 'Nghiên cứu mã cổ phiếu (HOSE · HNX · UPCOM)', 'Kết hợp bằng chứng sở hữu quỹ mở (Fmarket) và 5 trang phân tích cổ phiếu từ gói dữ liệu tĩnh Yuanta YSradar (Tổng quan, Giao dịch, Tương quan 3 khối ngành tách BĐS, BCTC Q1/2010–nay, Tin tức & sự kiện).')}${stockDataNotice}
+    <div class="stock-layout"><section class="panel"><div class="panel-header"><div><h3>Danh mục mã cổ phiếu (${integer(filtered.length)} / ${integer(allStocks.length)} mã)</h3><p>Chọn mã bất kỳ hoặc nhập mã (VD: ACB) để mở chi tiết 5 trang nghiên cứu bên dưới.</p></div></div>
+    <form class="control-bar" data-filter-form>
+      <div class="field grow"><label for="stock-search">Tìm mã / tên công ty</label><input id="stock-search" name="q" type="search" value="${esc(q)}" placeholder="VD: ACB, FPT, Vinhomes"></div>
+      <div class="field"><label for="stock-exchange">Sàn</label><select id="stock-exchange" name="exchange"><option value="">Cả 3 sàn</option>${['HOSE', 'HNX', 'UPCOM'].map((ex) => `<option value="${ex}" ${exFilter === ex ? 'selected' : ''}>${ex}</option>`).join('')}</select></div>
+      <div class="field"><label for="stock-mgroup">Khối ngành (3 nhóm)</label><select id="stock-mgroup" name="mgroup"><option value="">Tất cả khối</option><option value="BANK" ${mgFilter === 'BANK' ? 'selected' : ''}>Ngân hàng</option><option value="NON_BANK_FINANCIAL" ${mgFilter === 'NON_BANK_FINANCIAL' ? 'selected' : ''}>Tài chính phi ngân hàng</option><option value="NON_FINANCIAL" ${mgFilter === 'NON_FINANCIAL' ? 'selected' : ''}>Phi tài chính (gồm BĐS)</option></select></div>
+      <button class="button primary" type="submit">Lọc</button>
+      <button class="button" type="button" data-action="reset-filters">Đặt lại</button>
+    </form>
+    ${allStocks.length ? tableHtml([{ key: 'ticker', label: 'Mã / Doanh nghiệp' }, { key: 'exchange', label: 'Sàn' }, { key: 'sub_group_label', label: 'Ngành (tách BĐS)' }, { key: 'funds_count', label: 'Quỹ mở nắm giữ' }, { key: 'pe', label: 'P/E', numeric: true }, { key: 'stock_rating', label: 'Rating (Yuanta)', numeric: true }], body, { sort: sorted.key, direction: sorted.direction }) + paginationHtml(sorted) : emptyPanel('Chưa có dữ liệu cổ phiếu', 'Hãy chạy export_dashboard.py hoặc scan_yuanta_universe.py.', '⌕')}</section>
+    <div class="stacked-panels">${panel('Tra cứu trực tiếp theo mã (VD: ACB)', 'Mở nhanh Trang 1–5 cho bất kỳ mã nào trên 3 sàn.', `<form class="control-bar" data-filter-form><input type="hidden" name="stab" value="overview"><div class="field grow"><label for="direct-ticker">Mã CK</label><input id="direct-ticker" name="ticker" type="search" value="${esc(selected)}" placeholder="Nhập mã: ACB, VCB, VHM, SSI…"></div><button class="button primary" type="submit">Mở 5 trang</button></form>`)}${panel('Watchlist cá nhân', 'Lưu cục bộ trên thiết bị hiện tại; không gửi lên server.', watchHtml)}${panel('Trạng thái kho dữ liệu 3 sàn Yuanta', 'Tệp tĩnh .json.gz trên cùng origin; không gọi trực tiếp API ngoài từ trình duyệt.', yuantaStatusBox)}</div></div>${selectedView}`;
 }
 
 export function resolveCompareState(funds, navRecords, { category = '', a = '', b = '' } = {}) {
@@ -844,7 +915,7 @@ function renderMethodology() {
       <article class="method-card"><h3>NAV comparison</h3><p>Khi có hai quỹ cùng nhóm và ít nhất hai ngày NAV nguồn trùng chính xác, dashboard hiển thị biến động NAV đơn giản trên khoảng chung. Không nội suy, không dùng observed snapshots, không gọi đây là total return; không điều chỉnh phân phối, benchmark, risk hoặc phí.</p></article>
       <article class="method-card"><h3>Freshness / stale</h3><p>Giao diện hiển thị last date, age và đánh giá SLA độ mới trên các dataset đã được phê duyệt ngưỡng trong <code>config.toml</code> (45d cho holdings/allocation, 3d cho nav_snapshots, 180d cho fees); các dataset khác giữ trạng thái <code>not_assessed_no_sla</code>. Ngày date-only không được đổi thành thời điểm PIT chính xác.</p></article>
       <article class="method-card"><h3>Pipeline outcome</h3><p>Source request thành công hoặc collector counter không tự chứng minh GitHub Actions job success. Status tổng thể chỉ hiển thị khi có <code>workflow_status.json</code> đã sanitize (không chứa token/log thô); trang luôn liên kết tới Actions để kiểm chứng trực tiếp.</p></article>
-      <article class="method-card"><h3>Stock research</h3><p>Fund ownership và thay đổi báo cáo là bằng chứng holdings, không phải buy signal. Repository hiện không cung cấp fundamentals, valuation, target price, market price hoặc transaction-level records; các module đó được đánh dấu chưa khả dụng.</p></article>
+      <article class="method-card"><h3>Stock research &amp; Yuanta 3-exchange lake</h3><p>Mục Nghiên cứu mã kết hợp sở hữu quỹ mở (Fmarket) với gói tĩnh <code>dashboard/data/yuanta/stocks/{SYMBOL}.json.gz</code> quét từ 3 sàn HOSE/HNX/UPCOM (Trang 1 Tổng quan, Trang 2 Giao dịch, Trang 3 Tương quan ngành 3 khối tách BĐS khỏi Tài chính L1, Trang 4 BCTC Q1/2010–nay, Trang 5 Tin tức &amp; sự kiện). Trình duyệt chỉ đọc tệp tĩnh, không gọi API live; điểm Stock Rating được ghi rõ là dữ liệu bên thứ ba của Yuanta.</p></article>
       <article class="method-card"><h3>Missingness & verification</h3><p>Missing dataset ≠ source trả về rỗng; unknown ≠ zero. Quality status chỉ mô tả validator cấu trúc/giá trị; verification status độc lập cho biết nguồn đã hay chưa được kiểm chứng ngoài pipeline.</p></article>
     </div>
     <div class="method-callout">Không có Smart Money Score, alpha claim, ranking đầu tư hay khuyến nghị mua/bán trong dashboard này. Kiểm tra terms/rate limits của provider trước khi bật collection live.</div>`;
@@ -871,6 +942,22 @@ function renderCurrent() {
   app.innerHTML = html;
   app.setAttribute('aria-busy', 'false');
   document.getElementById('footer-generated').textContent = `Export: ${dateTimeText(data.manifest?.generated_at)} · schema ${data.manifest?.schema_version || 'unknown'}`;
+  if (view === 'stocks') {
+    const selTicker = (params.get('ticker') || '').trim().toUpperCase();
+    const stab = params.get('stab') || (data.yuantaUniverse?.status === 'available' ? 'overview' : 'funds');
+    if (selTicker && stab !== 'funds') {
+      window.__YUANTA_BUNDLES = window.__YUANTA_BUNDLES || new Map();
+      if (!window.__YUANTA_BUNDLES.has(selTicker)) {
+        window.__YUANTA_BUNDLES.set(selTicker, { status: 'loading', symbol: selTicker, bundle: null });
+        loadYuantaStockBundle(selTicker).then((entry) => {
+          window.__YUANTA_BUNDLES.set(selTicker, entry);
+          if ((queryParams().get('ticker') || '').trim().toUpperCase() === selTicker) {
+            renderCurrent();
+          }
+        });
+      }
+    }
+  }
   const selected = params.get('fund') ? document.getElementById('fund-detail') : params.get('ticker') ? document.querySelector('.stock-detail') : null;
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
   selected?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
@@ -881,7 +968,13 @@ async function bootstrap() {
   const alert = document.getElementById('load-alert');
   app.setAttribute('aria-busy', 'true');
   try {
-    const loaded = await loadDashboardData();
+    clearYuantaCache();
+    window.__YUANTA_BUNDLES = new Map();
+    const [loaded, yuantaUniverse] = await Promise.all([
+      loadDashboardData(),
+      loadYuantaUniverse(),
+    ]);
+    loaded.yuantaUniverse = yuantaUniverse;
     window.__VNFA_DATA = loaded;
     alert.hidden = true;
     renderCurrent();

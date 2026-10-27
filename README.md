@@ -39,16 +39,49 @@ Dashboard giữ rõ các giới hạn: Top-N không phải full portfolio; `UNCO
 
 Giá trị ước tính = phần khối lượng còn lại sau điều chỉnh proxy quy mô × giá ngầm định (giá trị tài sản / khối lượng). Đây là ước tính ở giá kỳ báo cáo, không phải giá giao dịch; giá trị thiếu được hiển thị là chưa có dữ liệu, không thay bằng 0.
 
+## Quét toàn bộ cổ phiếu 3 sàn (HOSE, HNX, UPCOM) & 5 trang nghiên cứu mã (Yuanta YSradar)
+
+Ngoài dữ liệu quỹ mở Fmarket, dự án tích hợp bộ quét toàn bộ cổ phiếu trên **3 sàn (`HOSE`/`HSX`, `HNX`, `UPCOM`)** theo cấu trúc 5 trang dữ liệu của Yuanta YSradar (mẫu tham chiếu `ACB`), lưu trữ Parquet lake ngoài Git (`data/yuanta/`) và xuất gói tĩnh nén gzip theo từng mã (`dashboard/data/yuanta/stocks/{SYMBOL}.json.gz`) phục vụ trực tiếp trên mục **Nghiên cứu mã** của dashboard:
+
+1. **Trang 1 — Tổng quan (`overview`)**: `stock_rating/info`, `profile/info`, `profile/shareholder`, `price_board/stock/stock_info`, `last_bid_offer`, `list_transaction`, `list_stock_info`, `list_stock_rating_info`, `profile/peers`.
+2. **Trang 2 — Dữ liệu giao dịch (`trading`)**: `price_history` (OHLCV + khối ngoại khớp lệnh từ `2010-01-01` đến nay), `price_history_foreign` (room ngoại & sở hữu NN từ `2025-01-01`), và 3 biểu đồ `foreign_screener` (`ngay_giao_dich`, `gtgd_binh_quan_chart`, `ty_le_von_hoa_chart`).
+3. **Trang 3 — Tương quan trong ngành (`correlation`)**: Tính toán trung vị và bách phân vị tương quan từ dữ liệu BCTC Trang 4 theo **3 khối ngành lớn** (`Ngân hàng`, `Tài chính phi ngân hàng`, `Phi tài chính`), trong đó **tách riêng các phân ngành đặc thù như `Bất động sản` (`REAL_ESTATE`) ra khỏi nhánh Tài chính L1** để không gộp chung với Ngân hàng/Chứng khoán/Bảo hiểm. Hỗ trợ radar 5 trục bách phân vị và biểu đồ so sánh đa thang đo (mã vs trung vị ngành con vs trung vị khối).
+4. **Trang 4 — Báo cáo tài chính (`financials`)**: Phân trang toàn bộ `CSTC` (Chỉ số tài chính) và `BCTT` (Báo cáo tóm tắt) theo quý từ **Q1/2010 đến nay** (`report_term_type=2`, `unit=1000000`), kèm bộ 4 biểu đồ BCTC chuyên biệt cho từng khối ngành (`Ngân hàng`, `Tài chính phi ngân hàng`, `Phi tài chính`).
+5. **Trang 5 — Tin tức & sự kiện (`events`)**: Toàn bộ bài viết, tin doanh nghiệp, lịch cổ tức & ĐHĐCĐ từ `2010-01-01` đến nay (`market_data/article`), có tìm kiếm và bộ lọc nhóm sự kiện.
+
+Chạy quét local (hỗ trợ resume tự động qua checkpoint `.json.gz`, incremental refresh, chọn sàn/mã/module):
+
+```bash
+# Quét thử nghiệm 3 mã đại diện cho 3 khối ngành / tách BĐS (Ngân hàng, Chứng khoán, Bất động sản)
+python scripts/scan_yuanta_universe.py --tickers ACB,SSI,VHM --workers 3
+
+# Quét toàn bộ 3 sàn HOSE + HNX + UPCOM (mặc định Q1/2010 -> nay, tự resume nếu ngắt giữa chừng)
+python scripts/scan_yuanta_universe.py --exchanges HOSE,HNX,UPCOM --workers 6
+
+# Cập nhật incremental nhanh (chỉ kéo phần giá/kỳ BCTC mới phát sinh từ checkpoint gần nhất)
+python scripts/scan_yuanta_universe.py --incremental --workers 6
+
+# Chỉ dựng lại Parquet lake + tương quan ngành Trang 3 + gói .json.gz từ checkpoints có sẵn (offline 100%)
+python scripts/scan_yuanta_universe.py --rebuild-static-only
+```
+
+Đầu ra được tách bạch để không làm phình Git repository:
+- `data/yuanta/` *(gitignored)*: `checkpoints/{SYMBOL}.json.gz`, 7 bảng Parquet hợp nhất (`stocks_master.parquet`, `ohlcv_daily.parquet`, `foreign_room_daily.parquet`, `financials_cstc.parquet`, `financials_bctt.parquet`, `peer_correlations.parquet`, `articles_events.parquet`), `source_runs_yuanta.csv` (chỉ lưu hash/status, không lưu raw body/token), và `scan_manifest.json`.
+- `dashboard/data/yuanta/` *(gitignored local, đóng gói khi deploy Pages)*: `universe.json`, `sector_medians.json`, và `stocks/{SYMBOL}.json.gz` (trình duyệt giải nén trực tiếp qua `DecompressionStream('gzip')`, tự fallback sang `.json` nếu cần; `NaN`/`Inf` luôn chuyển thành `null`, không bao giờ ép về `0`).
+- Tự động hóa trên GitHub Actions: `.github/workflows/yuanta_scan.yml` hỗ trợ `workflow_dispatch` (tùy chọn sàn, danh sách mã, số luồng, `incremental`) và lịch chạy định kỳ hằng tuần, lưu cache checkpoints + upload Parquet artifact mà không commit file lớn vào Git.
+
 ## Cấu trúc
 
 ```
 VN_Fund_Analysis/
-├── .github/workflows/daily.yml    # chạy 08:30 giờ VN hằng ngày + chạy tay
-├── .github/workflows/pages.yml    # test, export JSON tĩnh và deploy GitHub Pages
-├── dashboard/                    # UI nghiên cứu static, responsive; dashboard/data/ được build
-├── config.toml                    # ngưỡng, loại quỹ, watchlist
+├── .github/workflows/daily.yml       # chạy 08:30 giờ VN hằng ngày + chạy tay (Fmarket)
+├── .github/workflows/yuanta_scan.yml # quét 3 sàn HOSE/HNX/UPCOM (Trang 1–5) + Parquet artifact + Pages
+├── .github/workflows/pages.yml       # test, export JSON tĩnh và deploy GitHub Pages
+├── dashboard/                        # UI nghiên cứu static (app.mjs + yuanta_view.mjs); dashboard/data/ được build
+├── config.toml                       # ngưỡng, loại quỹ, watchlist
 ├── vnfa/
-│   ├── fmarket.py                 # client + parser Fmarket, source-event metadata
+│   ├── fmarket.py                    # client + parser Fmarket, source-event metadata
+│   ├── yuanta.py                     # client + parser Yuanta 3 sàn (Trang 1–5), phân nhóm 3 khối ngành (tách BĐS)
 │   ├── store.py                   # legacy CSV append-only (sep=';'; schema giữ nguyên)
 │   ├── quality.py                 # validators, hard errors và warnings
 │   ├── temporal.py                # cutoff Point-In-Time, lọc late/future/unknown
@@ -64,7 +97,8 @@ VN_Fund_Analysis/
 │   ├── run_daily.py               # lệnh chạy hằng ngày (mọi quỹ, mọi bảng)
 │   ├── diagnose_sources.py        # probe Fmarket, phân loại auth/network/schema/rate-limit/empty
 │   ├── data_inventory.py          # inventory JSON/Markdown + SLA freshness dựa trên CSV hiện có
-│   ├── export_dashboard.py        # tạo dashboard/data/ từ archive hiện có (không sửa CSV)
+│   ├── export_dashboard.py        # tạo dashboard/data/ từ archive hiện có (không sửa CSV, giữ nguyên yuanta/)
+│   ├── scan_yuanta_universe.py    # quét toàn bộ cổ phiếu HOSE/HNX/UPCOM (Trang 1–5), xuất Parquet & .json.gz tĩnh
 │   ├── compact_provenance.py      # nén nav_history point-rows thành per-fund summary (có --dry-run + backup)
 │   ├── migrate_source_runs.py     # nâng cấp source_runs.csv v1 -> v2 (thêm fund_code, giữ unknown lịch sử)
 │   ├── check_data_budget.py       # kiểm tra ngưỡng dung lượng data/ & dự phóng 90 ngày
@@ -77,7 +111,8 @@ VN_Fund_Analysis/
 │   ├── test_core.py               # unit & invariant tests cho store, fmarket, diff
 │   ├── test_foundation.py         # tests cho quality, temporal PIT, provenance, inventory, scripts
 │   ├── test_dashboard_export.py   # tests cho static dashboard exporter, workflow_status & SLA
-│   └── test_dashboard_ui.mjs      # offline Node test suite cho UI state/filter/compare/formatters
+│   ├── test_yuanta.py             # offline tests cho Yuanta Pages 1–5, tách ngành BĐS, Parquet & .json.gz
+│   └── test_dashboard_ui.mjs      # offline Node test suite cho UI state/filter/compare/Yuanta 5-tab view
 ├── data/                          # tự sinh:
 │   ├── holdings/{QUY}.csv         #   top 10 cổ phiếu mỗi kỳ công bố
 │   ├── bonds/{QUY}.csv            #   top trái phiếu mỗi kỳ công bố

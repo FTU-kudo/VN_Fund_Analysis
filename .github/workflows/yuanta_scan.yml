@@ -1,0 +1,190 @@
+name: Yuanta 3-exchange stock scanner
+
+on:
+  schedule:
+    # Weekly refresh at 18:00 UTC Saturday (01:00 Sunday ICT, outside market hours).
+    - cron: "0 18 * * 6"
+  workflow_dispatch:
+    inputs:
+      exchanges:
+        description: "Comma-separated exchanges to scan (HOSE,HNX,UPCOM)"
+        required: false
+        default: "HOSE,HNX,UPCOM"
+        type: string
+      tickers:
+        description: "Optional comma-separated tickers (e.g. ACB,VCB,FPT); blank = all stocks on selected exchanges"
+        required: false
+        default: ""
+        type: string
+      limit:
+        description: "Optional max ticker count (0 = unlimited)"
+        required: false
+        default: "0"
+        type: string
+      workers:
+        description: "Concurrent scanner worker threads (1-8)"
+        required: false
+        default: "6"
+        type: string
+      from_year:
+        description: "Earliest financial report year (default 2010 -> Q1/2010)"
+        required: false
+        default: "2010"
+        type: string
+      incremental:
+        description: "Incremental refresh from existing checkpoints"
+        required: false
+        default: true
+        type: boolean
+      no_intraday:
+        description: "Skip intraday bid/offer & matched-tick snapshots"
+        required: false
+        default: false
+        type: boolean
+      deploy_pages:
+        description: "Rebuild & deploy GitHub Pages after scan (main branch only)"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: yuanta-stock-scanner
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install repository dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Restore cached Yuanta checkpoints and static bundles
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            data/yuanta/checkpoints
+            dashboard/data/yuanta
+          key: yuanta-lake-v1-${{ github.run_id }}
+          restore-keys: |
+            yuanta-lake-v1-
+
+      - name: Run Yuanta 3-exchange scanner (Pages 1-5 + Parquet + .json.gz)
+        env:
+          INPUT_EXCHANGES: ${{ inputs.exchanges || 'HOSE,HNX,UPCOM' }}
+          INPUT_TICKERS: ${{ inputs.tickers || '' }}
+          INPUT_LIMIT: ${{ inputs.limit || '0' }}
+          INPUT_WORKERS: ${{ inputs.workers || '6' }}
+          INPUT_FROM_YEAR: ${{ inputs.from_year || '2010' }}
+          INPUT_INCREMENTAL: ${{ inputs.incremental }}
+          INPUT_NO_INTRADAY: ${{ inputs.no_intraday }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import subprocess
+          import sys
+
+          exchanges = re.sub(r"[^A-Za-z,]", "", os.environ.get("INPUT_EXCHANGES") or "HOSE,HNX,UPCOM")
+          tickers = re.sub(r"[^A-Za-z0-9,]", "", os.environ.get("INPUT_TICKERS") or "")
+          try:
+              limit = max(0, int(os.environ.get("INPUT_LIMIT") or "0"))
+          except ValueError:
+              limit = 0
+          try:
+              workers = max(1, min(8, int(os.environ.get("INPUT_WORKERS") or "6")))
+          except ValueError:
+              workers = 6
+          try:
+              from_year = max(2005, min(2100, int(os.environ.get("INPUT_FROM_YEAR") or "2010")))
+          except ValueError:
+              from_year = 2010
+
+          cmd = [
+              sys.executable,
+              "scripts/scan_yuanta_universe.py",
+              "--exchanges", exchanges,
+              "--workers", str(workers),
+              "--from-year", str(from_year),
+              "--data-dir", "data/yuanta",
+              "--static-dir", "dashboard/data/yuanta",
+          ]
+          if tickers:
+              cmd.extend(["--tickers", tickers])
+          if limit > 0:
+              cmd.extend(["--limit", str(limit)])
+          # Schedule runs default to incremental refresh when checkpoints exist.
+          inc = os.environ.get("INPUT_INCREMENTAL", "").lower()
+          if inc in ("true", "1", ""):
+              cmd.append("--incremental")
+          if os.environ.get("INPUT_NO_INTRADAY", "").lower() in ("true", "1"):
+              cmd.append("--no-intraday")
+
+          print("Executing:", " ".join(cmd), flush=True)
+          raise SystemExit(subprocess.call(cmd))
+          PY
+
+      - name: Save updated Yuanta checkpoints and static bundles to Actions cache
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            data/yuanta/checkpoints
+            dashboard/data/yuanta
+          key: yuanta-lake-v1-${{ github.run_id }}
+
+      - name: Upload consolidated Parquet lake artifact
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: yuanta-parquet-lake
+          retention-days: 14
+          if-no-files-found: ignore
+          path: |
+            data/yuanta/*.parquet
+            data/yuanta/scan_manifest.json
+            data/yuanta/source_runs_yuanta.csv
+
+      - name: Export Fmarket static datasets and stage Pages artifact
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.deploy_pages == true)
+        run: python scripts/export_dashboard.py
+
+      - name: Upload Pages artifact
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.deploy_pages == true)
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: dashboard
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.deploy_pages == true)
+    needs: scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure Pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

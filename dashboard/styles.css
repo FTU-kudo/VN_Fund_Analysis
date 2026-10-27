@@ -458,6 +458,25 @@ td.numeric, th.numeric { text-align: right; font-variant-numeric: tabular-nums; 
 .unavailable-item strong { color: var(--ink); }
 .unavailable-item span { color: var(--muted); text-align: right; }
 
+.yuanta-tabs { flex-wrap: wrap; margin: 10px 0 16px; }
+.yuanta-section { display: grid; gap: 15px; margin-top: 8px; }
+.yuanta-bio { margin: 0 0 12px; color: var(--muted); font-size: 11px; line-height: 1.65; }
+.price-up { color: #197a56; font-weight: 700; }
+.price-down { color: #be3e32; font-weight: 700; }
+.price-ref { color: #b67d14; font-weight: 700; }
+.legend-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+.multiscale-grid { display: grid; gap: 10px; }
+.multiscale-card { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: #fbfdfd; display: grid; gap: 5px; }
+.multiscale-head { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 2px; }
+.multiscale-head span { color: var(--muted); font-size: 10px; }
+.multiscale-row { display: grid; grid-template-columns: minmax(110px, 1.1fr) minmax(80px, 1.8fr) auto; align-items: center; gap: 8px; font-size: 10px; }
+.multiscale-row > span { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.multiscale-track { height: 7px; border-radius: 999px; background: #eaf0f2; overflow: hidden; }
+.multiscale-fill { height: 100%; border-radius: 999px; }
+.multiscale-fill.primary { background: var(--teal); }
+.multiscale-fill.peer { background: #5a7d9a; }
+.multiscale-fill.macro { background: #9aaab4; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

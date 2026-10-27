@@ -13,6 +13,7 @@ on:
       - "tests/**"
       - ".github/workflows/daily.yml"
       - ".github/workflows/pages.yml"
+      - ".github/workflows/yuanta_scan.yml"
   pull_request:
     branches: [main]
     paths:
@@ -25,6 +26,7 @@ on:
       - "tests/**"
       - ".github/workflows/daily.yml"
       - ".github/workflows/pages.yml"
+      - ".github/workflows/yuanta_scan.yml"
   # Daily's GITHUB_TOKEN commit does not trigger a second push workflow.
   # Rebuild Pages whenever the daily workflow finishes on the default branch (success or failure with updated workflow_status.json).
   workflow_run:
@@ -67,6 +69,13 @@ jobs:
         run: node --test tests/test_dashboard_ui.mjs
       - name: Check data archive size budget
         run: python scripts/check_data_budget.py --data-dir data
+      - name: Restore latest Yuanta static stock bundles (if scanned)
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: dashboard/data/yuanta
+          key: yuanta-static-readonly-${{ github.run_id }}
+          restore-keys: |
+            yuanta-lake-v1-
       - name: Export sanitized static data
         run: python scripts/export_dashboard.py
       - name: Upload Pages artifact

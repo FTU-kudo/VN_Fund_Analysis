@@ -1,5 +1,6 @@
-# Local dashboard exports are rebuilt by the Pages workflow.
+# Local dashboard exports and out-of-Git market data lake.
 /dashboard/data/
+/data/yuanta/
 
 # Local derived exports and scratch artifacts.
 /exports/
