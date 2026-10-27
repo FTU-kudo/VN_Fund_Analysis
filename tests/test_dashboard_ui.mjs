@@ -5,11 +5,18 @@ import {
   compareNavSeries,
   filterEvents,
   filterFunds,
+  formatFreshness,
+  formatMissingRate,
   loadDashboardData,
   normalizeDataset,
   paginate,
+  resolveCompareState,
   resolveDataUrl,
+  sanitizeCompareSelection,
+  signedPercentFraction,
+  signedPercentPoints,
   sortRows,
+  summarizeFundFacts,
 } from '../dashboard/app.mjs';
 
 test('dataset envelopes distinguish malformed, empty, missing, and unknown counts', () => {
@@ -123,4 +130,68 @@ test('NAV comparison uses exact common positive history dates and no snapshots',
   assert.equal(compareNavSeries(records, 'A', 'A').status, 'select_two_funds');
   const duplicate = [...records, { fund: 'A', date: '2026-01-01', nav: 101, series_type: 'nav_history' }];
   assert.equal(compareNavSeries(duplicate, 'A', 'B').status, 'duplicate_source_dates');
+});
+
+test('compare category change clears stale out-of-category funds while preserving compatible funds', () => {
+  const funds = [
+    { fund_id: 'DCDS', name: 'DC Dynamic', asset_code: 'STOCK' },
+    { fund_id: 'VESAF', name: 'VinaCapital', asset_code: 'STOCK' },
+    { fund_id: 'TCBF', name: 'Techcom Bond', asset_code: 'BOND' },
+    { fund_id: 'DCBF', name: 'DC Bond', asset_code: 'BOND' },
+  ];
+  const nav = [
+    { fund: 'DCDS', date: '2026-01-01', nav: 100, series_type: 'nav_history' },
+    { fund: 'DCDS', date: '2026-01-02', nav: 102, series_type: 'nav_history' },
+    { fund: 'VESAF', date: '2026-01-01', nav: 200, series_type: 'nav_history' },
+    { fund: 'VESAF', date: '2026-01-02', nav: 204, series_type: 'nav_history' },
+  ];
+  // Direct out-of-category URL parameters must refuse cross-category compare cleanly.
+  const staleUrlState = resolveCompareState(funds, nav, { category: 'BOND', a: 'DCDS', b: 'VESAF' });
+  assert.equal(staleUrlState.result.status, 'selection_outside_category');
+  assert.deepEqual(staleUrlState.candidates.map((f) => f.fund_id), ['TCBF', 'DCBF']);
+
+  // Switching category from STOCK to BOND clears DCDS/VESAF immediately.
+  assert.deepEqual(sanitizeCompareSelection(funds, 'BOND', 'DCDS', 'VESAF'), {
+    category: 'BOND', a: '', b: '',
+  });
+  // Staying within STOCK keeps DCDS/VESAF intact.
+  assert.deepEqual(sanitizeCompareSelection(funds, 'STOCK', 'DCDS', 'VESAF'), {
+    category: 'STOCK', a: 'DCDS', b: 'VESAF',
+  });
+  const okState = resolveCompareState(funds, nav, { category: 'STOCK', a: 'DCDS', b: 'VESAF' });
+  assert.equal(okState.result.status, 'available');
+});
+
+test('freshness SLA formatter separates within_sla, stale, missing, empty, schema_mismatch, and no_sla', () => {
+  assert.equal(formatFreshness({ freshness_assessment: 'within_sla', age_days_at_reference: 13, sla_days: 45 }).tone, 'ok');
+  assert.match(formatFreshness({ freshness_assessment: 'stale', age_days_at_reference: 56, sla_days: 45 }).label, /Quá hạn SLA/);
+  assert.equal(formatFreshness({ freshness_assessment: 'unavailable_missing' }).label, 'Chưa có tệp');
+  assert.equal(formatFreshness({ freshness_assessment: 'empty_dataset' }).label, 'Tệp rỗng');
+  assert.equal(formatFreshness({ freshness_assessment: 'schema_mismatch' }).tone, 'error');
+  assert.equal(formatFreshness({ freshness_assessment: 'not_assessed_no_sla', age_days_at_reference: 361 }).label, 'Chưa đặt SLA');
+});
+
+test('missing-rate, signed vi-VN deltas, and fund_facts grouping preserve semantics without coercing nulls', () => {
+  assert.equal(formatMissingRate(null, 100).value, 'Chưa có dữ liệu');
+  const pub = formatMissingRate(2251, 2251);
+  assert.match(pub.value, /2\.251 \/ 2\.251 \(100%\)/);
+
+  assert.equal(signedPercentFraction(null), '—');
+  assert.match(signedPercentFraction(0.025), /^\+2,5%$/);
+  assert.match(signedPercentFraction(-0.025), /^−2,5%$/);
+  assert.equal(signedPercentPoints(0), '0%');
+  assert.match(signedPercentPoints(-5.25), /^−5,25%$/);
+
+  const grouped = summarizeFundFacts([
+    { fund: 'DCDS', fact_type: 'allocation', asset_code: 'STOCK', pct: 0.85 },
+    { fund: 'DCDS', fact_type: 'industry', industry: 'Ngân hàng', pct: 0.31 },
+    { fund: 'DCDS', fact_type: 'fees', type: 'SELL', fee: 1.5 },
+    { fund: 'DCDS', fact_type: 'profile', management_fee_pct: 1.9 },
+    { fund: 'VESAF', fact_type: 'profile', management_fee_pct: 1.75 },
+  ], 'DCDS');
+  assert.equal(grouped.allocation.length, 1);
+  assert.equal(grouped.industry.length, 1);
+  assert.equal(grouped.fees.length, 1);
+  assert.equal(grouped.profile.management_fee_pct, 1.9);
+  assert.equal(grouped.performance.length, 0);
 });

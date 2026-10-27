@@ -457,6 +457,15 @@ td.numeric, th.numeric { text-align: right; font-variant-numeric: tabular-nums; 
 .unavailable-item { display: flex; justify-content: space-between; gap: 10px; padding: 9px 10px; border: 1px solid #e6edef; border-radius: 7px; background: #fafcfc; font-size: 10px; }
 .unavailable-item strong { color: var(--ink); }
 .unavailable-item span { color: var(--muted); text-align: right; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 .stock-ticker { display: block; }
 .stock-ticker .mono { color: var(--teal-dark); font-size: 21px; font-weight: 800; }
 .stock-detail { margin-top: 4px; }
