@@ -1,8 +1,26 @@
-# Local dashboard exports are rebuilt by the Pages workflow.
+# Local dashboard exports and out-of-Git market data lake.
 /dashboard/data/
+/data/yuanta/
 
-# Python build/test artifacts.
+# Local derived exports and scratch artifacts.
+/exports/
+*.bak
+*.orig
+*.tmp
+
+# Secrets and local environment files (never commit).
+.env
+.env.*
+
+# Python build/test/coverage artifacts.
 .venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# OS metadata.
+.DS_Store

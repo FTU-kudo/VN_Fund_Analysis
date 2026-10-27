@@ -6,6 +6,7 @@ provenance payloads are not published, and legacy records are never modified.
 """
 from __future__ import annotations
 
+import functools
 import hashlib
 import os
 import json
@@ -21,7 +22,9 @@ import numpy as np
 import pandas as pd
 
 from .inventory import build_data_inventory
-from .provenance import OBSERVATION_COLUMNS, QUALITY_COLUMNS, SOURCE_COLUMNS
+from .provenance import OBSERVATION_COLUMNS, QUALITY_COLUMNS, SOURCE_COLUMNS_V1
+from .quality import STRUCTURAL_WARNING_CODES
+from .store import read_csv_safe
 
 VIETNAM = ZoneInfo("Asia/Ho_Chi_Minh")
 UTC = timezone.utc
@@ -101,6 +104,11 @@ def _date(value: Any) -> str | None:
     text = _text(value)
     if not text:
         return None
+    if len(text) == 10 and text[4] == "-" and text[7] == "-":
+        try:
+            return date.fromisoformat(text).isoformat()
+        except ValueError:
+            pass
     try:
         parsed = pd.to_datetime(text, errors="coerce", utc=True)
     except (TypeError, ValueError, OverflowError):
@@ -173,7 +181,7 @@ def _read_csv(path: Path) -> tuple[pd.DataFrame | None, str]:
     if not path.exists():
         return None, "missing"
     try:
-        frame = pd.read_csv(path, sep=";", dtype=str, keep_default_na=True)
+        frame = read_csv_safe(path, sep=";", dtype=str)
     except Exception:
         return None, "unreadable"
     return frame, "empty" if frame.empty else "available"
@@ -359,6 +367,41 @@ def _latest_provenance(records: list[dict[str, Any]]) -> dict[tuple[str, str], d
     return latest
 
 
+def _index_provenance(records: list[dict[str, Any]]) -> tuple[
+    dict[tuple[str, str, str, str], dict[str, Any]],
+    dict[tuple[str, str, str, str], dict[str, Any]],
+]:
+    """Build O(1) lookup maps keyed by `(dataset, fund, record_key_upper, day)`.
+
+    `explicit_index` matches an observation's explicit `observed_date`. `timestamp_index`
+    provides a strictly timestamp-backed fallback keyed by the Vietnam local day of
+    `observed_at` when `observed_date` was omitted on a live ingestion run; it NEVER uses
+    `effective_date`, `published_at`, or file metadata.
+    """
+    explicit_index: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    timestamp_index: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    for record in records:
+        dataset = record.get("dataset")
+        fund = record.get("fund")
+        key_upper = (record.get("record_key") or "").upper()
+        if not dataset or not fund or not key_upper:
+            continue
+        obs_date = record.get("observed_date")
+        if obs_date:
+            explicit_index[(dataset, fund, key_upper, obs_date)] = record
+            continue
+        obs_at = record.get("observed_at")
+        if obs_at:
+            ts = pd.to_datetime(obs_at, errors="coerce", utc=True)
+            if pd.notna(ts):
+                vn_day = ts.tz_convert(VIETNAM).strftime("%Y-%m-%d")
+                derived = dict(record)
+                if not derived.get("observed_date_basis") or derived.get("observed_date_basis") == "unknown":
+                    derived["observed_date_basis"] = "response_observed_at"
+                timestamp_index[(dataset, fund, key_upper, vn_day)] = derived
+    return explicit_index, timestamp_index
+
+
 def _select_latest_snapshot(frame: pd.DataFrame, *, fund_hint: str | None = None) -> pd.DataFrame:
     """Select the latest date/hash block without reordering revisions in the source CSV."""
     if frame.empty:
@@ -404,6 +447,7 @@ def _holdings_records(root: Path, inventory: dict[str, Any], provenance: list[di
     all_paths: list[str] = []
     statuses: list[str] = []
     unexported_source_rows = False
+    explicit_prov, ts_prov = _index_provenance(provenance)
     for pattern, dataset, coverage, asset_class in specs:
         files, unsafe_paths, path_status = _frames(root, pattern)
         all_paths.extend(path.relative_to(root).as_posix() for path, _ in files)
@@ -446,12 +490,12 @@ def _holdings_records(root: Path, inventory: dict[str, Any], provenance: list[di
                     "industry": _text(row.get("industry")),
                     "content_hash": _text(row.get("content_hash")),
                 }
-                # Use only an exact date/key match; otherwise do not imply a time belongs to this row.
-                matches = [p for p in provenance if p.get("dataset") == dataset and p.get("fund") == fund
-                           and (p.get("record_key") or "").upper() == ticker.upper() and p.get("observed_date") == record["observed_date"]
-                           and record["observed_date"] is not None]
-                if matches:
-                    evidence = matches[-1]
+                # Use an exact (dataset, fund, ticker, day) match backed by observed_date or exact observed_at.
+                evidence = None
+                if record["observed_date"] is not None:
+                    lookup_key = (dataset, fund, ticker.upper(), record["observed_date"])
+                    evidence = explicit_prov.get(lookup_key) or ts_prov.get(lookup_key)
+                if evidence is not None:
                     for key in ("observed_at", "published_at", "observed_date_basis", "source",
                                 "source_reference", "data_quality_status", "verification_status"):
                         if evidence.get(key) is not None:
@@ -515,6 +559,7 @@ def _events(root: Path, inventory: dict[str, Any], provenance: list[dict[str, An
                       .head(max_records).sort_values("_source_order").copy())
     frame = frame.drop(columns=["_source_order", "_parsed_event_date"], errors="ignore")
     was_truncated = window_truncated or capped
+    explicit_prov, ts_prov = _index_provenance(provenance)
     records = []
     for row in frame.to_dict(orient="records"):
         action_raw = _text(row.get("action"))
@@ -556,14 +601,21 @@ def _events(root: Path, inventory: dict[str, Any], provenance: list[dict[str, An
             "source_reference": None,
             "is_confirmed_transaction": False,
         }
-        # Attach a source reference only when a recorded observation matches this fund/date.
-        matches = [p for p in provenance if p.get("dataset") in {"fund_holdings", "fund_bond_holdings"}
-                   and p.get("fund") == fund and (p.get("record_key") or "").upper() == (ticker.upper() if ticker else "")
-                   and p.get("observed_date") == date_text and date_text is not None]
-        if matches:
-            event["source_reference"] = matches[-1].get("source_reference")
-            event["observed_at"] = matches[-1].get("observed_at")
-            event["published_at"] = matches[-1].get("published_at")
+        # Attach a source reference only when a recorded observation matches this fund/ticker/date.
+        evidence = None
+        if date_text is not None and fund and ticker:
+            preferred_ds = "fund_bond_holdings" if event.get("asset_class") == "BOND" else "fund_holdings"
+            fallback_ds = "fund_holdings" if preferred_ds == "fund_bond_holdings" else "fund_bond_holdings"
+            ticker_upper = ticker.upper()
+            for ds in (preferred_ds, fallback_ds):
+                lookup_key = (ds, fund, ticker_upper, date_text)
+                evidence = explicit_prov.get(lookup_key) or ts_prov.get(lookup_key)
+                if evidence is not None:
+                    break
+        if evidence is not None:
+            event["source_reference"] = evidence.get("source_reference")
+            event["observed_at"] = evidence.get("observed_at")
+            event["published_at"] = evidence.get("published_at")
         else:
             event["observed_at"] = None
             event["published_at"] = None
@@ -641,7 +693,7 @@ def _read_source_events(path: Path, max_records: int = MAX_SOURCE_EVENTS) -> tup
     frame, status = _read_csv(path)
     if frame is None:
         return [], status, False, None
-    if not set(SOURCE_COLUMNS).issubset(frame.columns):
+    if not set(SOURCE_COLUMNS_V1).issubset(frame.columns):
         return [], "schema_mismatch", False, None
     total_count = len(frame)
     records = []
@@ -656,6 +708,7 @@ def _read_source_events(path: Path, max_records: int = MAX_SOURCE_EVENTS) -> tup
             response_hash = None
         records.append({
             "provider": _safe_label(row.get("provider")),
+            "fund_code": _safe_label(row.get("fund_code")),
             "endpoint": endpoint,
             "started_at": _timestamp(row.get("started_at")),
             "observed_at": _timestamp(row.get("observed_at")),
@@ -773,14 +826,36 @@ def _data_quality(inventory: dict[str, Any], provenance: list[dict[str, Any]], e
             issues.append(_make_issue(f"duplicate:{dataset}", "warning", dataset,
                 "Phát hiện khóa trùng; kiểm tra xem đây là revision hợp lệ hay dữ liệu lặp ngoài dự kiến.",
                 count, generated_at, "Đối chiếu khóa tự nhiên, revision và chính sách deduplicate trước khi dùng."))
-    stale_status = "not_assessed_no_sla"
+    freshness_policy_cfg = inventory.get("freshness_policy") or {}
+    sla_enabled = bool(freshness_policy_cfg.get("enabled"))
+    sla_thresholds = freshness_policy_cfg.get("thresholds_days") or {}
     inventory_summaries = []
     for name, item in inventory.get("datasets", {}).items():
         ranges = item.get("date_coverage", {})
-        last_dates = [value.get("last") for value in ranges.values() if value.get("last")]
-        latest = max(last_dates) if last_dates else None
-        ages = [value.get("age_days_reference_date") for value in ranges.values()
-                if value.get("age_days_reference_date") is not None]
+        fresh_info = item.get("freshness") or {}
+        basis_col = fresh_info.get("date_basis")
+        if basis_col and ranges.get(basis_col, {}).get("last"):
+            latest = ranges[basis_col]["last"]
+        else:
+            last_dates = [value.get("last") for value in ranges.values() if value.get("last")]
+            latest = max(last_dates) if last_dates else None
+        age_at_ref = fresh_info.get("age_days")
+        if age_at_ref is None:
+            ages = [value.get("age_days_reference_date") for value in ranges.values()
+                    if value.get("age_days_reference_date") is not None]
+            age_at_ref = min(ages) if ages else None
+        assessment = fresh_info.get("assessment") or "not_assessed_no_sla"
+        sla_days = fresh_info.get("sla_days")
+        if assessment == "stale":
+            issues.append(_make_issue(
+                f"stale:{name}", "warning", name,
+                f"Dataset vượt ngưỡng SLA độ mới ({age_at_ref} ngày > {sla_days} ngày theo cột {basis_col or 'date'}).",
+                item.get("row_count"), generated_at,
+                "Kiểm tra kỳ báo cáo nguồn và lần chạy thu thập gần nhất; không suy diễn dữ liệu mới khi nguồn chưa cập nhật.",
+            ))
+        warnings_list = item.get("quality", {}).get("warnings", [])
+        structural_cnt = sum(int(f.get("count", 0) or 0) for f in warnings_list if f.get("code") in STRUCTURAL_WARNING_CODES)
+        anomaly_cnt = sum(int(f.get("count", 0) or 0) for f in warnings_list if f.get("code") not in STRUCTURAL_WARNING_CODES)
         inventory_summaries.append({
             "dataset": name,
             "status": item.get("status"),
@@ -788,19 +863,29 @@ def _data_quality(inventory: dict[str, Any], provenance: list[dict[str, Any]], e
             "fund_count": None if item.get("status") == "missing" else item.get("fund_count"),
             "source_paths": item.get("paths", []),
             "latest_date": latest,
-            "age_days_at_reference": min(ages) if ages else None,
-            "freshness_assessment": stale_status,
+            "date_basis": basis_col,
+            "age_days_at_reference": age_at_ref,
+            "sla_days": sla_days,
+            "freshness_assessment": assessment,
             "quality_status": item.get("quality", {}).get("status", "not_applicable"),
             "validation_errors": sum(int(f.get("count", 0) or 0) for f in item.get("quality", {}).get("errors", [])),
-            "validation_warnings": sum(int(f.get("count", 0) or 0) for f in item.get("quality", {}).get("warnings", [])),
+            "validation_warnings": sum(int(f.get("count", 0) or 0) for f in warnings_list),
+            "structural_warnings": structural_cnt,
+            "anomaly_warnings": anomaly_cnt,
         })
+    freshness_policy_text = (
+        f"Owner-approved SLA enabled (days): {json.dumps(sla_thresholds, sort_keys=True)}; unconfigured datasets remain not_assessed_no_sla."
+        if sla_enabled and sla_thresholds
+        else "Age is shown; stale is not assigned because no dataset SLA is configured."
+    )
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at": generated_at,
         "status": "issues_found" if any(item["severity"] in {"error", "warning"} for item in issues)
             else "data_unavailable" if not inventory.get("data_directory_exists") or not inventory.get("summary", {}).get("datasets_available") else "no_findings_recorded",
         "data_directory_exists": inventory.get("data_directory_exists", False),
-        "freshness_policy": "Age is shown; stale is not assigned because no dataset SLA is configured.",
+        "freshness_policy": freshness_policy_text,
+        "freshness_sla_thresholds_days": sla_thresholds if sla_enabled else {},
         "source_coverage": inventory.get("source_coverage", {}),
         "datasets": inventory_summaries,
         "issues": issues,
@@ -816,25 +901,78 @@ def _data_quality(inventory: dict[str, Any], provenance: list[dict[str, Any]], e
     }
 
 
+def _safe_workflow_status(root: Path, path: Path) -> tuple[dict[str, Any] | None, str]:
+    if root.is_symlink() or path.is_symlink():
+        return None, "unsafe_path"
+    if not path.exists():
+        return None, "missing"
+    try:
+        path.resolve().relative_to(root.resolve())
+        if path.stat().st_size > 65_536:
+            return None, "unreadable"
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None, "unreadable"
+    if not isinstance(raw, dict):
+        return None, "schema_mismatch"
+    allowed_conclusions = {"success", "failure", "cancelled", "skipped", "partial", "unknown"}
+    conclusion = _safe_label(raw.get("conclusion"))
+    recorded_at = _timestamp(raw.get("recorded_at"))
+    if conclusion not in allowed_conclusions or recorded_at is None:
+        return None, "schema_mismatch"
+    allowed_triggers = {"schedule", "workflow_dispatch", "manual", "push", "unknown"}
+    trigger = _safe_label(raw.get("trigger"))
+    if trigger not in allowed_triggers:
+        trigger = "unknown"
+    allowed_budget = {"ok", "warn", "fail", "unknown"}
+    budget_status = _safe_label(raw.get("budget_status"))
+    if budget_status not in allowed_budget:
+        budget_status = "unknown"
+    exit_code = _number(raw.get("collector_exit_code"))
+    return {
+        "workflow": _safe_label(raw.get("workflow")) or "daily",
+        "conclusion": conclusion,
+        "recorded_at": recorded_at,
+        "trigger": trigger,
+        "collector_exit_code": int(exit_code) if exit_code is not None else None,
+        "budget_status": budget_status,
+    }, "available"
+
+
 def _pipeline_status(root: Path, source_events: list[dict[str, Any]], source_event_status: str,
                      generated_at: str, *, source_event_total: int | None,
                      source_event_outcomes: dict[str, int] | None) -> dict[str, Any]:
     summary, summary_status = _safe_last_run(root, root / "last_run.json")
+    wf_summary, wf_status = _safe_workflow_status(root, root / "workflow_status.json")
     latest_request = source_events[-1] if source_events else None
-    # The source ledger does not include run_id in its public projection; report requests
-    # in aggregate and explicitly keep overall workflow status unknown.
     outcomes: dict[str, int] = {}
     for event in source_events:
         status = event.get("status") or "unknown"
         outcomes[status] = outcomes.get(status, 0) + 1
     if source_event_outcomes is None and source_event_status in {"available", "empty"}:
         source_event_outcomes = outcomes
+    if wf_summary is not None:
+        overall_wf = wf_summary["conclusion"]
+        last_known = wf_summary["conclusion"]
+        explanation = (
+            f"Sanitized workflow status recorded at {wf_summary['recorded_at']} "
+            f"(trigger={wf_summary['trigger']}, budget={wf_summary['budget_status']})."
+        )
+    else:
+        overall_wf = "unknown_not_exported"
+        last_known = "unavailable_or_unverified"
+        explanation = (
+            "Individual request outcomes and collector counters do not prove that a GitHub Actions job completed "
+            "successfully. No sanitized workflow-run result is stored in this checkout."
+        )
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at": generated_at,
-        "status": "unavailable" if not source_events and summary_status == "missing" else "recorded_activity",
-        "overall_workflow_status": "unknown_not_exported",
-        "status_explanation": "Individual request outcomes and collector counters do not prove that a GitHub Actions job completed successfully. No sanitized workflow-run result is stored in this checkout.",
+        "status": "unavailable" if not source_events and summary_status == "missing" and wf_summary is None else "recorded_activity",
+        "overall_workflow_status": overall_wf,
+        "workflow_status_record": wf_summary,
+        "workflow_status_file_state": wf_status,
+        "status_explanation": explanation,
         "latest_collector_summary": summary,
         "collector_summary_status": summary_status,
         "latest_source_request": latest_request,
@@ -842,7 +980,7 @@ def _pipeline_status(root: Path, source_events: list[dict[str, Any]], source_eve
         "source_request_exported_count": len(source_events) if source_event_status in {"available", "empty"} else None,
         "source_request_outcomes": source_event_outcomes if source_event_status in {"available", "empty"} else None,
         "actions_url": "https://github.com/FTU-kudo/VN_Fund_Analysis/actions/workflows/daily.yml",
-        "last_known_status": "unavailable_or_unverified",
+        "last_known_status": last_known,
     }
 
 
@@ -1277,8 +1415,13 @@ def export_dashboard(data_dir: str | Path, output_dir: str | Path, *, generated_
                                         source_event_total=source_events_total,
                                         source_event_outcomes=source_coverage.get("outcomes") if source_coverage.get("status") in {"recorded", "empty"} else None)
     collector_status = pipeline_summary.get("collector_summary_status")
-    pipeline_activity = pipeline_summary.get("latest_collector_summary") is not None or bool(source_events)
-    pipeline_errors = {source_event_status, collector_status} & {"unsafe_path", "unreadable", "schema_mismatch"}
+    wf_file_state = pipeline_summary.get("workflow_status_file_state")
+    pipeline_activity = (
+        pipeline_summary.get("latest_collector_summary") is not None
+        or bool(source_events)
+        or pipeline_summary.get("workflow_status_record") is not None
+    )
+    pipeline_errors = {source_event_status, collector_status, wf_file_state} & {"unsafe_path", "unreadable", "schema_mismatch"}
     if pipeline_activity:
         pipeline_status = "partial" if pipeline_errors else "available"
     elif "unsafe_path" in pipeline_errors:
@@ -1287,13 +1430,15 @@ def export_dashboard(data_dir: str | Path, output_dir: str | Path, *, generated_
         pipeline_status = "unreadable"
     elif "schema_mismatch" in pipeline_errors:
         pipeline_status = "schema_mismatch"
-    elif source_event_status == "empty" or collector_status == "available":
+    elif source_event_status == "empty" or collector_status == "available" or wf_file_state == "available":
         pipeline_status = "empty"
     else:
         pipeline_status = "missing"
     pipeline_paths = list(source_paths)
     if collector_status not in {"missing", "unsafe_path"}:
         pipeline_paths.append("last_run.json")
+    if wf_file_state not in {None, "missing", "unsafe_path"}:
+        pipeline_paths.append("workflow_status.json")
     dataset_envelopes["pipeline_status"] = _source_envelope(
         name="pipeline_status", records=[pipeline_summary] if pipeline_activity else [],
         source_paths=sorted(set(pipeline_paths)),
@@ -1386,14 +1531,27 @@ def export_dashboard(data_dir: str | Path, output_dir: str | Path, *, generated_
     return manifest
 
 
+_NON_ALNUM_RE = re.compile(r"[^a-z0-9]")
+_PROHIBITED_KEY_PARTS = (
+    "token", "password", "authorization", "cookie", "secret", "apikey",
+    "credential", "privatekey", "rawbody", "payloadjson", "requestbody", "responsebody",
+)
+
+
+@functools.lru_cache(maxsize=2048)
+def _normalized_prohibited_key(key: str) -> str | None:
+    normalized = _NON_ALNUM_RE.sub("", key.lower())
+    if any(part in normalized for part in _PROHIBITED_KEY_PARTS):
+        return normalized
+    return None
+
+
 def _contains_sensitive_key(value: Any) -> bool:
-    prohibited_parts = ("token", "password", "authorization", "cookie", "secret", "apikey",
-                        "credential", "privatekey", "rawbody", "payloadjson", "requestbody", "responsebody")
     if isinstance(value, dict):
         for key, item in value.items():
-            normalized = re.sub(r"[^a-z0-9]", "", str(key).lower())
-            if any(part in normalized for part in prohibited_parts):
-                if normalized == "credentialsexported" and item is False:
+            matched = _normalized_prohibited_key(str(key))
+            if matched is not None:
+                if matched == "credentialsexported" and item is False:
                     continue  # Explicit public policy boolean; no credential value is present.
                 return True
             if _contains_sensitive_key(item):

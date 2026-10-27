@@ -340,3 +340,83 @@ def test_invalid_limits_are_rejected(tmp_path):
         export_dashboard(tmp_path / "data", tmp_path / "public", nav_years=11)
     with pytest.raises(ValueError, match="max_events"):
         export_dashboard(tmp_path / "data", tmp_path / "public", max_events=100_001)
+
+
+def test_holdings_and_events_join_timestamp_provenance_without_explicit_observed_date(tmp_path):
+    data, output = tmp_path / "data", tmp_path / "public"
+    write_frame(data / "holdings" / "NA.csv", [{
+        "observed_date": "2026-10-27", "fund": "NA", "ticker": "NAN", "weight": "0.10",
+        "rank": "1", "volume": "1000", "price_k": "10", "asset_value": "10000000",
+        "industry": "Bank", "update_date": "2026-09-30", "content_hash": "h1",
+    }])
+    write_frame(data / "changes.csv", [{
+        "observed_date": "2026-10-27", "fund": "NA", "mgmt_co": "CO", "ticker": "NAN",
+        "action": "NEW_IN_TOP10", "basis": "rank", "w_prev": "", "w_new": "0.10", "w_delta": "0.10",
+        "vol_prev": "", "vol_new": "1000", "vol_pct": "", "vol_rel": "", "vol_scale": "",
+        "est_value_vnd": "", "censored": "True", "flag": "", "asset_class": "STOCK",
+    }], CHANGE_COLUMNS)
+    observation = {column: None for column in OBSERVATION_COLUMNS}
+    observation.update({
+        "observation_id": "obs-ts-1", "run_id": "run-1", "dataset": "fund_holdings",
+        "fund": "NA", "record_key": "NAN", "effective_date": "2026-09-30",
+        "observed_at": "2026-10-27T06:35:00Z", "published_at": None,
+        "ingested_at": "2026-10-27T06:37:56Z", "observed_date": None,
+        "observed_date_basis": None, "source": "fmarket", "source_reference": "/products/99",
+        "record_hash": "rh", "payload_json": "{}", "data_quality_status": "partial",
+        "verification_status": "provider_returned_unverified", "quality_flags": "[]",
+        "coverage_type": "top_n", "schema_version": "1",
+    })
+    write_frame(data / "research_observations.csv", [observation], OBSERVATION_COLUMNS)
+
+    export_dashboard(data, output, generated_at=GENERATED_AT, reference_date=REFERENCE_DATE)
+    hold = read_json(output / "holdings.json")["records"][0]
+    assert hold["fund"] == "NA" and hold["ticker"] == "NAN"
+    assert hold["observed_at"] == "2026-10-27T06:35:00Z"
+    assert hold["observed_date_basis"] == "response_observed_at"
+    assert hold["source"] == "fmarket" and hold["source_reference"] == "/products/99"
+
+    evt = read_json(output / "portfolio_events.json")["records"][0]
+    assert evt["fund"] == "NA" and evt["ticker"] == "NAN"
+    assert evt["observed_at"] == "2026-10-27T06:35:00Z"
+    assert evt["source_reference"] == "/products/99"
+
+
+def test_export_sanitized_workflow_status_and_sla_stale_issue(tmp_path):
+    import importlib.util
+
+    spec_w = importlib.util.spec_from_file_location("write_wf_status", "scripts/write_workflow_status.py")
+    wf = importlib.util.module_from_spec(spec_w)
+    spec_w.loader.exec_module(wf)
+
+    # Put config.toml in tmp_path so data/ inside tmp_path inherits SLA thresholds.
+    (tmp_path / "config.toml").write_text(
+        "[freshness]\nenabled = true\nallocation = 45\nnav_snapshots = 3\n",
+        encoding="utf-8",
+    )
+    data, output = tmp_path / "data", tmp_path / "public"
+    write_frame(data / "allocation.csv", [{
+        "observed_date": "2026-10-27", "fund": "F1", "asset_code": "STOCK",
+        "asset_name": "CP", "pct": "0.8", "report_date": "2026-08-01", "content_hash": "h1",
+    }])
+    wf.write_workflow_status(
+        data / "workflow_status.json",
+        workflow="daily",
+        conclusion="failure",
+        trigger="schedule",
+        collector_exit_code=1,
+        budget_status="ok",
+        recorded_at="2026-10-27T06:40:00Z",
+    )
+
+    export_dashboard(data, output, generated_at=GENERATED_AT, reference_date=REFERENCE_DATE)
+    pipeline = read_json(output / "pipeline_status.json")["summary"]
+    assert pipeline["overall_workflow_status"] == "failure"
+    assert pipeline["last_known_status"] == "failure"
+    assert pipeline["workflow_status_record"]["collector_exit_code"] == 1
+    assert pipeline["workflow_status_record"]["budget_status"] == "ok"
+
+    quality = read_json(output / "data_quality_summary.json")["summary"]
+    alloc_summary = next(d for d in quality["datasets"] if d["dataset"] == "allocation")
+    assert alloc_summary["freshness_assessment"] == "stale"
+    assert alloc_summary["sla_days"] == 45
+    assert any(issue["issue_id"] == "stale:allocation" for issue in quality["issues"])

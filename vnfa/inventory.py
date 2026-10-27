@@ -11,9 +11,12 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from .provenance import OBSERVATION_COLUMNS, QUALITY_COLUMNS, SOURCE_COLUMNS
-from .quality import (QualityReport, validate_allocation, validate_bond_holdings,
-                      validate_fund_universe, validate_holdings, validate_nav, validate_nav_snapshot)
+from .config import load_config
+from .provenance import OBSERVATION_COLUMNS, QUALITY_COLUMNS, SOURCE_COLUMNS_V1
+from .quality import (STRUCTURAL_WARNING_CODES, QualityReport, validate_allocation,
+                      validate_bond_holdings, validate_fund_universe, validate_holdings,
+                      validate_nav, validate_nav_snapshot)
+from .store import read_csv_safe
 
 VIETNAM = ZoneInfo("Asia/Ho_Chi_Minh")
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -33,27 +36,120 @@ DATASETS = {
     "fees": {"patterns": ["fees.csv"], "required": ["fund"]},
     "profile": {"patterns": ["profile.csv"], "required": ["fund"]},
     "performance": {"patterns": ["performance.csv"], "required": ["fund"]},
-    "source_events": {"patterns": ["source_runs.csv"], "required": SOURCE_COLUMNS},
+    "source_events": {"patterns": ["source_runs.csv"], "required": SOURCE_COLUMNS_V1},
     "research_observations": {"patterns": ["research_observations.csv"], "required": OBSERVATION_COLUMNS},
     "quality_reports": {"patterns": ["quality_reports.csv"], "required": QUALITY_COLUMNS},
 }
 
 DATE_COLUMNS = {
+    "fund_metadata": ("last_seen",),
     "fund_holdings": ("observed_date", "update_date"),
     "fund_bond_holdings": ("observed_date", "update_date"),
     "full_holdings": ("observed_date", "period_end"),
     "changes": ("observed_date",),
     "nav_history": ("date",),
     "nav_snapshots": ("date",),
-    "allocation": ("report_date",),
+    "allocation": ("observed_date", "report_date"),
+    "industry": ("observed_date",),
+    "fees": ("observed_date",),
+    "profile": ("observed_date",),
     "research_observations": ("observed_at", "published_at", "ingested_at", "effective_date", "observed_date"),
 }
+
+FRESHNESS_PRIMARY_COLUMN = {
+    "fund_holdings": "update_date",
+    "fund_bond_holdings": "update_date",
+    "full_holdings": "period_end",
+    "allocation": "report_date",
+    "nav_snapshots": "date",
+    "nav_history": "date",
+    "fees": "observed_date",
+    "industry": "observed_date",
+    "profile": "observed_date",
+}
+
+
+def _resolve_freshness_sla(
+    root: Path,
+    *,
+    config_path: str | Path | None = None,
+    freshness_sla: dict[str, int] | None = None,
+) -> tuple[bool, dict[str, int]]:
+    if freshness_sla is not None:
+        return True, {str(k): int(v) for k, v in freshness_sla.items() if isinstance(v, (int, float)) and int(v) >= 0}
+    resolved_cfg_path: Path | None = None
+    if config_path is not None:
+        resolved_cfg_path = Path(config_path)
+    else:
+        try:
+            if root.resolve() == (REPO_ROOT / "data").resolve() and (REPO_ROOT / "config.toml").exists():
+                resolved_cfg_path = REPO_ROOT / "config.toml"
+            elif root.parent != REPO_ROOT and (root.parent / "config.toml").exists():
+                resolved_cfg_path = root.parent / "config.toml"
+        except OSError:
+            resolved_cfg_path = None
+    cfg = load_config(resolved_cfg_path)
+    section = cfg.get("freshness") or {}
+    if not bool(section.get("enabled")):
+        return False, {}
+    thresholds = {
+        str(k): int(v)
+        for k, v in section.items()
+        if k != "enabled" and isinstance(v, (int, float)) and not isinstance(v, bool) and int(v) >= 0
+    }
+    return bool(thresholds), thresholds
+
+
+def _assess_freshness(
+    dataset_name: str,
+    status: str,
+    date_coverage: dict[str, Any],
+    *,
+    sla_enabled: bool,
+    sla_thresholds: dict[str, int],
+) -> dict[str, Any]:
+    primary_col = FRESHNESS_PRIMARY_COLUMN.get(dataset_name, "observed_date")
+    age_days = None
+    basis_col = None
+    for candidate in (primary_col, "observed_date", "date"):
+        info = date_coverage.get(candidate)
+        if info and info.get("age_days_reference_date") is not None:
+            age_days = int(info["age_days_reference_date"])
+            basis_col = candidate
+            break
+    threshold = sla_thresholds.get(dataset_name) if sla_enabled else None
+    if not sla_enabled or threshold is None:
+        return {
+            "assessment": "not_assessed_no_sla",
+            "sla_days": None,
+            "age_days": age_days,
+            "date_basis": basis_col,
+        }
+    if status == "missing":
+        assessment = "unavailable_missing"
+    elif status == "empty":
+        assessment = "empty_dataset"
+    elif status in {"unreadable", "schema_mismatch"}:
+        assessment = "schema_mismatch"
+    elif age_days is None:
+        assessment = "unknown_no_dates"
+    elif age_days > threshold:
+        assessment = "stale"
+    else:
+        assessment = "within_sla"
+    return {
+        "assessment": assessment,
+        "sla_days": threshold,
+        "age_days": age_days,
+        "date_basis": basis_col,
+    }
 
 
 def _combine_quality(dataset: str, reports: list[QualityReport], row_count: int) -> dict[str, Any]:
     if not reports:
         return {"dataset": dataset, "status": "not_applicable", "row_count": row_count,
-                "errors": [], "warnings": [], "metrics": {}}
+                "errors": [], "warnings": [], "structural_warnings": [], "anomaly_warnings": [],
+                "metrics": {}}
     findings: dict[tuple[str, str, str], int] = Counter()
     for report in reports:
         for finding in report.findings:
@@ -62,15 +158,19 @@ def _combine_quality(dataset: str, reports: list[QualityReport], row_count: int)
               for (code, severity, message), count in findings.items() if severity == "error"]
     warnings = [{"code": code, "severity": severity, "message": message, "count": count}
                 for (code, severity, message), count in findings.items() if severity == "warning"]
-    structural_warnings = [finding for finding in warnings if finding["code"] != "effective_date_unknown"]
+    structural_limitations = [f for f in warnings if f["code"] in STRUCTURAL_WARNING_CODES]
+    anomaly_warnings = [f for f in warnings if f["code"] not in STRUCTURAL_WARNING_CODES]
+    non_snapshot_warnings = [finding for finding in warnings if finding["code"] != "effective_date_unknown"]
     if errors:
         status = "invalid"
-    elif any(report.status in {"partial", "unavailable"} for report in reports) or structural_warnings:
+    elif any(report.status in {"partial", "unavailable"} for report in reports) or non_snapshot_warnings:
         status = "partial"
     else:
         status = "valid"
     return {"dataset": dataset, "status": status, "row_count": row_count,
             "errors": errors, "warnings": warnings,
+            "structural_warnings": structural_limitations,
+            "anomaly_warnings": anomaly_warnings,
             "metrics": {"validation_groups": len(reports)}}
 
 
@@ -98,7 +198,7 @@ def _validation_reports(name: str, frames: list[tuple[Path, pd.DataFrame]]) -> l
 
 def _read_csv(path: Path) -> tuple[pd.DataFrame | None, dict[str, Any]]:
     try:
-        frame = pd.read_csv(path, sep=";", dtype=str)
+        frame = read_csv_safe(path, sep=";", dtype=str)
         return frame, {"status": "read", "row_count": len(frame), "columns": list(frame.columns),
                        "bytes": path.stat().st_size}
     except Exception as exc:
@@ -140,7 +240,13 @@ def _dataset_paths(root: Path, patterns: list[str]) -> list[Path]:
     return sorted(set(paths))
 
 
-def build_data_inventory(data_dir: str | Path, *, reference_date: str | date | None = None) -> dict[str, Any]:
+def build_data_inventory(
+    data_dir: str | Path,
+    *,
+    reference_date: str | date | None = None,
+    config_path: str | Path | None = None,
+    freshness_sla: dict[str, int] | None = None,
+) -> dict[str, Any]:
     """Build an inventory from present files only; `reference_date` controls age reporting."""
     root = Path(data_dir)
     if reference_date is None:
@@ -151,6 +257,9 @@ def build_data_inventory(data_dir: str | Path, *, reference_date: str | date | N
         reference = reference_date
     else:
         reference = pd.Timestamp(reference_date).date()
+    sla_enabled, sla_thresholds = _resolve_freshness_sla(
+        root, config_path=config_path, freshness_sla=freshness_sla
+    )
 
     datasets: dict[str, Any] = {}
     raw_frames: dict[str, list[tuple[Path, pd.DataFrame]]] = {}
@@ -197,6 +306,10 @@ def build_data_inventory(data_dir: str | Path, *, reference_date: str | date | N
             status = "empty"
         else:
             status = "available"
+        date_cov = _date_summary(name, frames, reference)
+        freshness_info = _assess_freshness(
+            name, status, date_cov, sla_enabled=sla_enabled, sla_thresholds=sla_thresholds
+        )
         datasets[name] = {
             "status": status,
             "paths": [str(path.relative_to(root)) for path in paths],
@@ -207,7 +320,8 @@ def build_data_inventory(data_dir: str | Path, *, reference_date: str | date | N
             "schema_consistent": len(signatures) <= 1,
             "missing_required_columns": missing_schema,
             "fund_count": len(fund_values),
-            "date_coverage": _date_summary(name, frames, reference),
+            "date_coverage": date_cov,
+            "freshness": freshness_info,
             "quality": validation,
             "files": entries,
         }
@@ -272,6 +386,9 @@ def build_data_inventory(data_dir: str | Path, *, reference_date: str | date | N
                 if "completed_at" in source_events and source_events.completed_at.notna().any() else None,
             "http_status_counts": source_events.http_status.fillna("unknown").value_counts().to_dict()
                 if "http_status" in source_events else {},
+            "fund_code_recorded_count": int(
+                (source_events.fund_code.notna() & source_events.fund_code.astype(str).str.strip().ne("")).sum()
+            ) if "fund_code" in source_events else 0,
         }
     else:
         source_summary = {"status": "not_recorded", "event_count": 0,
@@ -316,10 +433,15 @@ def build_data_inventory(data_dir: str | Path, *, reference_date: str | date | N
             "datasets_expected": len(datasets),
             "datasets_available": available_count,
             "datasets_missing": missing_count,
+            "datasets_stale": sum(item.get("freshness", {}).get("assessment") == "stale" for item in datasets.values()),
             "datasets_with_schema_or_read_issues": issue_count,
             "csv_rows_observed": sum(item["row_count"] for item in datasets.values()),
             "funds_observed_across_tables": len(all_fund_values),
             "unclassified_csv_files": unclassified,
+        },
+        "freshness_policy": {
+            "enabled": sla_enabled,
+            "thresholds_days": sla_thresholds,
         },
         "source_coverage": source_summary,
         "limitations": [
@@ -350,15 +472,19 @@ def render_inventory_markdown(inventory: dict[str, Any]) -> str:
         "",
         "## Dataset inventory",
         "",
-        "| Dataset | Status | Files | Rows | Funds | Quality | Date coverage / range / age |",
-        "|---|---:|---:|---:|---:|---|---|",
+        "| Dataset | Status | Freshness | Files | Rows | Funds | Quality | Date coverage / range / age |",
+        "|---|---:|---|---:|---:|---:|---|---|",
     ]
     for name, item in inventory["datasets"].items():
         dates = item.get("date_coverage", {})
+        freshness = item.get("freshness", {})
+        fresh_label = freshness.get("assessment", "not_assessed_no_sla")
+        if freshness.get("sla_days") is not None:
+            fresh_label = f"{fresh_label} (≤{freshness['sla_days']}d)"
         date_text = ", ".join(
             f"{key}: {data['coverage']:.0%} ({data['first'] or '—'} → {data['last'] or '—'}; age {data['age_days_reference_date'] if data['age_days_reference_date'] is not None else '—'}d)"
             for key, data in dates.items()) or "n/a"
-        lines.append(f"| `{name}` | {item['status']} | {item['file_count']} | {item['row_count']} | {item['fund_count']} | {item['quality']['status']} | {date_text} |")
+        lines.append(f"| `{name}` | {item['status']} | {fresh_label} | {item['file_count']} | {item['row_count']} | {item['fund_count']} | {item['quality']['status']} | {date_text} |")
     lines.extend(["", "## Quality findings", ""])
     findings_printed = False
     for name, item in inventory["datasets"].items():

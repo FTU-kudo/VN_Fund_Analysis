@@ -1,3 +1,10 @@
+import {
+  clearYuantaCache,
+  loadYuantaStockBundle,
+  loadYuantaUniverse,
+  renderYuantaStockTabs,
+} from './yuanta_view.mjs';
+
 const DATASET_NAMES = [
   'funds', 'holdings', 'nav_history', 'portfolio_events', 'fund_facts',
   'data_quality', 'data_quality_summary', 'source_events', 'pipeline_status',
@@ -227,9 +234,19 @@ function datasetStatusNotice(dataset, label) {
   return message ? notice(message[0], message[1], message[2]) : '';
 }
 
-function badge(text, tone = 'neutral') {
+function badge(text, tone = 'neutral', title = '') {
   const symbol = tone === 'error' ? '!' : tone === 'warning' ? '·' : tone === 'ok' ? '✓' : '—';
-  return `<span class="table-status ${tone === 'ok' ? '' : tone}"><span class="status-symbol" aria-hidden="true">${symbol}</span>${esc(text)}</span>`;
+  const titleAttr = title ? ` title="${esc(title)}"` : '';
+  return `<span class="table-status ${tone === 'ok' ? '' : tone}"${titleAttr}><span class="status-symbol" aria-hidden="true">${symbol}</span>${esc(text)}</span>`;
+}
+function topNCoverageBadge(coverageType) {
+  if (coverageType === 'top_n_partial_censored') {
+    return badge('Top-N', 'warning', 'Nguồn chỉ công bố Top-N; mã ngoài Top-N là chưa biết, không phải bằng chứng bán hết');
+  }
+  if (coverageType === 'source_claimed_full_not_independently_verified') {
+    return badge('Full (nguồn)', 'neutral', 'Nguồn khai báo danh mục đầy đủ; chưa xác minh độc lập');
+  }
+  return badge('Chưa rõ độ phủ', 'neutral');
 }
 function number(value, digits = 2) {
   if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value))) return '—';
@@ -246,6 +263,82 @@ function percentFraction(value, digits = 2) {
 function percentPoints(value, digits = 2) {
   if (value === null || value === undefined || !Number.isFinite(Number(value))) return '—';
   return `${number(value, digits)}%`;
+}
+export function signedPercentFraction(value, digits = 2) {
+  if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value))) return '—';
+  const n = Number(value);
+  return new Intl.NumberFormat('vi-VN', {
+    style: 'percent',
+    maximumFractionDigits: digits,
+    signDisplay: 'exceptZero',
+  }).format(n).replace(/^-/, '−');
+}
+export function signedPercentPoints(value, digits = 2) {
+  if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value))) return '—';
+  const n = Number(value);
+  const formatted = new Intl.NumberFormat('vi-VN', {
+    maximumFractionDigits: digits,
+    signDisplay: 'exceptZero',
+  }).format(n).replace(/^-/, '−');
+  return `${formatted}%`;
+}
+export function formatMissingRate(missingCount, totalCount) {
+  if (missingCount === null || missingCount === undefined || !Number.isFinite(Number(missingCount))) {
+    return { value: 'Chưa có dữ liệu', basis: 'Chưa có mẫu quan sát để tính tỷ lệ thiếu' };
+  }
+  const miss = Number(missingCount);
+  if (totalCount === null || totalCount === undefined || !Number.isFinite(Number(totalCount)) || Number(totalCount) <= 0) {
+    return { value: integer(miss), basis: 'Tổng số bản ghi quan sát bằng 0 hoặc chưa xác định' };
+  }
+  const total = Number(totalCount);
+  const rate = percentFraction(miss / total, 1);
+  return {
+    value: `${integer(miss)} / ${integer(total)} (${rate})`,
+    basis: `Thiếu trên tổng ${integer(total)} bản ghi sidecar; unknown giữ là unknown`,
+  };
+}
+export function formatFreshness(item = {}) {
+  const assessment = item?.freshness_assessment || 'not_assessed_no_sla';
+  const age = item?.age_days_at_reference;
+  const sla = item?.sla_days;
+  const ageLabel = age == null ? null : `${integer(age)} ngày`;
+  switch (assessment) {
+    case 'within_sla':
+      return { label: sla != null ? `Đạt SLA (≤${sla}d)` : 'Đạt SLA', tone: 'ok', detail: ageLabel ? `${ageLabel} · SLA ≤${sla} ngày` : 'Đạt SLA' };
+    case 'stale':
+      return { label: sla != null ? `Quá hạn SLA (>${sla}d)` : 'Quá hạn SLA', tone: 'warning', detail: ageLabel ? `${ageLabel} · vượt SLA ${sla} ngày` : 'Quá hạn SLA' };
+    case 'unavailable_missing':
+      return { label: 'Chưa có tệp', tone: 'neutral', detail: 'Dataset thiếu trong archive' };
+    case 'empty_dataset':
+      return { label: 'Tệp rỗng', tone: 'neutral', detail: 'Tệp có header nhưng 0 dòng' };
+    case 'schema_mismatch':
+      return { label: 'Sai schema', tone: 'error', detail: 'Không tính tuổi do lỗi schema/đọc tệp' };
+    case 'unknown_no_dates':
+      return { label: 'Chưa rõ ngày', tone: 'neutral', detail: 'Không có cột ngày hợp lệ' };
+    default:
+      return { label: 'Chưa đặt SLA', tone: 'neutral', detail: ageLabel ? `${ageLabel} · không áp SLA` : 'Chưa đặt SLA' };
+  }
+}
+export function sanitizeCompareSelection(funds, nextCategory, fundA, fundB) {
+  const fundMap = new Map((funds || []).map((fund) => [fund.fund_id, fund]));
+  const keep = (fundId) => {
+    if (!fundId) return '';
+    const record = fundMap.get(fundId);
+    if (!record || !record.asset_code) return '';
+    if (nextCategory && record.asset_code !== nextCategory) return '';
+    return fundId;
+  };
+  return { category: nextCategory || '', a: keep(fundA), b: keep(fundB) };
+}
+export function summarizeFundFacts(factRows, fundId) {
+  const mine = (factRows || []).filter((row) => row && row.fund === fundId);
+  return {
+    allocation: mine.filter((row) => row.fact_type === 'allocation'),
+    industry: mine.filter((row) => row.fact_type === 'industry'),
+    fees: mine.filter((row) => row.fact_type === 'fees'),
+    profile: mine.find((row) => row.fact_type === 'profile') || null,
+    performance: mine.filter((row) => row.fact_type === 'performance'),
+  };
 }
 function dateText(value) {
   if (!value) return 'Chưa có dữ liệu';
@@ -355,21 +448,33 @@ function renderOverview(data) {
   const freshness = latestNavDate
     ? `${dateText(latestNavDate)} · ${latestNavBasis}`
     : 'Chưa có quan sát NAV trong archive';
+  const slaThresholds = quality.freshness_sla_thresholds_days || {};
+  const hasSla = Object.keys(slaThresholds).length > 0;
+  const staleDatasets = (quality.datasets || []).filter((item) => item.freshness_assessment === 'stale');
   const fetchFailures = Object.values(data.datasets || {}).filter((dataset) => ['unavailable', 'malformed'].includes(dataset.status));
   const overviewBanner = fetchFailures.length
     ? notice('Một số artifact tĩnh không khả dụng', `${fetchFailures.map((item) => item.dataset).join(', ')} không tải/parse được; các view liên quan có thể thiếu dữ liệu.`, 'error')
     : !data.manifest?.source_coverage?.data_directory_exists
       ? notice('Archive dữ liệu chưa có', 'data/ không tồn tại trong checkout tại lần export. Bảng điều khiển đang hiển thị trạng thái thiếu dữ liệu, không tạo số liệu minh họa.', 'warning')
-      : notice('Tính mới dữ liệu cần được diễn giải thận trọng', 'Tuổi quan sát được hiển thị nhưng chưa có SLA để gắn nhãn stale. Ngày quan sát và ngày công bố được tách riêng; không suy publication time từ effective date.', '');
-  const datasetRows = (quality.datasets || []).slice(0, 8).map((item) => `<tr><td><span class="mono">${esc(item.dataset)}</span></td><td>${badge(statusText(item.status), statusTone(item.status))}</td><td class="numeric">${item.observed_rows == null ? 'Chưa có dữ liệu' : integer(item.observed_rows)}</td><td>${item.latest_date ? dateText(item.latest_date) : 'Chưa ghi nhận'}</td><td>${esc(item.freshness_assessment === 'not_assessed_no_sla' ? 'Chưa đặt SLA' : '—')}</td></tr>`).join('');
+      : staleDatasets.length
+        ? notice('Phát hiện bộ dữ liệu vượt ngưỡng SLA độ mới', `${staleDatasets.map((d) => `${d.dataset} (${d.age_days_at_reference}d > ${d.sla_days}d)`).join(', ')}. Kỳ công bố nguồn có thể trễ hơn ngày collector quan sát.`, 'warning')
+        : notice('Tính mới dữ liệu cần được diễn giải thận trọng', hasSla ? 'SLA độ mới đang bật theo cấu hình dự án; ngày quan sát và ngày hiệu lực vẫn tách riêng, không suy publication time từ effective date.' : 'Tuổi quan sát được hiển thị nhưng chưa có SLA để gắn nhãn stale. Ngày quan sát và ngày công bố được tách riêng; không suy publication time từ effective date.', '');
+  const datasetRows = (quality.datasets || []).slice(0, 8).map((item) => {
+    const fresh = formatFreshness(item);
+    return `<tr><td><span class="mono">${esc(item.dataset)}</span></td><td>${badge(statusText(item.status), statusTone(item.status))}</td><td class="numeric">${item.observed_rows == null ? 'Chưa có dữ liệu' : integer(item.observed_rows)}</td><td>${item.latest_date ? dateText(item.latest_date) : 'Chưa ghi nhận'}</td><td>${badge(fresh.label, fresh.tone, fresh.detail)}</td></tr>`;
+  }).join('');
   const datasetsPanel = panel('Tình trạng các bộ dữ liệu', 'Kiểm kê từ tệp thực tế; “thiếu” không đồng nghĩa với giá trị bằng 0.', datasetRows
     ? tableHtml([{ key: 'dataset', label: 'Dataset', sortable: false }, { key: 'status', label: 'Trạng thái', sortable: false }, { key: 'observed_rows', label: 'Số dòng đã đọc', numeric: true, sortable: false }, { key: 'latest_date', label: 'Ngày cuối', sortable: false }, { key: 'freshness_assessment', label: 'Freshness', sortable: false }], datasetRows)
     : emptyPanel('Chưa có inventory', 'Manifest không có metadata dataset.', '⌁'));
-  const pipelineStatus = pipeline.overall_workflow_status === 'success' ? 'Thành công' : 'Chưa xác minh';
+  const wfStatusMap = { success: 'Thành công', failure: 'Thất bại', partial: 'Một phần', cancelled: 'Đã hủy', skipped: 'Bỏ qua' };
+  const pipelineStatus = wfStatusMap[pipeline.overall_workflow_status] || 'Chưa xác minh';
   const activity = pipeline.latest_source_request?.completed_at ? dateTimeText(pipeline.latest_source_request.completed_at) : 'Chưa ghi nhận request';
+  const freshnessSubtitle = hasSla
+    ? `${latestNavBasis} · ${staleDatasets.length ? `${integer(staleDatasets.length)} dataset vượt SLA` : 'các dataset có SLA đều trong ngưỡng'}`
+    : `${latestNavBasis} · stale chưa được đánh giá vì chưa cấu hình SLA`;
   return `${pageIntro('TỔNG QUAN', 'Nền dữ liệu nghiên cứu quỹ', 'Theo dõi dữ liệu đã lưu, nguồn gốc và giới hạn diễn giải. Đây là công cụ nghiên cứu; không xếp hạng hay đưa khuyến nghị mua/bán.')}
     ${overviewBanner}
-    <div class="freshness-strip"><div class="freshness-main"><span class="freshness-mark" aria-hidden="true">◷</span><div><strong>Độ mới của dữ liệu</strong><small>${esc(latestNavBasis)} · stale chưa được đánh giá vì chưa cấu hình SLA</small></div></div><div class="freshness-date">${esc(latestNavDate ? dateText(latestNavDate) : 'Chưa có dữ liệu')}</div></div>
+    <div class="freshness-strip"><div class="freshness-main"><span class="freshness-mark" aria-hidden="true">◷</span><div><strong>Độ mới của dữ liệu</strong><small>${esc(freshnessSubtitle)}</small></div></div><div class="freshness-date">${esc(latestNavDate ? dateText(latestNavDate) : 'Chưa có dữ liệu')}</div></div>
     <div class="metric-grid">
       ${metric('Quỹ có trong catalogue', tracked == null ? 'Chưa có dữ liệu' : integer(tracked), 'Căn cứ: funds.csv / mã quỹ thực sự quan sát', '▤')}
       ${metric('Quỹ có snapshot danh mục', holdings.record_count == null ? 'Chưa có dữ liệu' : integer(currentFundCount), 'Snapshot cuối đã lưu; Top-N không phải danh mục đầy đủ', '⌗')}
@@ -399,7 +504,7 @@ function renderFunds(data, params) {
   const sorted = applySortPage(filtered, params, 'fund_id');
   const body = sorted.rows.map((fund) => {
     const query = new URLSearchParams({ view: 'funds', fund: fund.fund_id });
-    return `<tr><td><a class="fund-link mono" href="?${esc(query.toString())}" data-route>${esc(fund.fund_id)}</a><span class="table-sub">${esc(fund.name || 'Chưa có tên')}</span></td><td>${esc(fund.management_company || 'Chưa có dữ liệu')}</td><td>${esc(categoryText(fund.asset_code))}</td><td class="numeric">${fund.latest_nav_observation == null ? '—' : number(fund.latest_nav_observation, 0)}<span class="table-sub">${esc(fund.latest_nav_observation_date ? dateText(fund.latest_nav_observation_date) : 'Ngày NAV chưa biết')}</span></td><td>${fund.latest_holdings_date ? dateText(fund.latest_holdings_date) : 'Chưa có snapshot'}</td><td>${fund.holdings_coverage ? badge(fund.holdings_coverage === 'top_n_partial_censored' ? 'Top-N · bị kiểm duyệt' : 'Nguồn khai báo đầy đủ', 'warning') : badge('Chưa rõ độ phủ', 'neutral')}</td></tr>`;
+    return `<tr><td><a class="fund-link mono" href="?${esc(query.toString())}" data-route>${esc(fund.fund_id)}</a><span class="table-sub">${esc(fund.name || 'Chưa có tên')}</span></td><td>${esc(fund.management_company || 'Chưa có dữ liệu')}</td><td>${esc(categoryText(fund.asset_code))}</td><td class="numeric">${fund.latest_nav_observation == null ? '—' : number(fund.latest_nav_observation, 0)}<span class="table-sub">${esc(fund.latest_nav_observation_date ? dateText(fund.latest_nav_observation_date) : 'Ngày NAV chưa biết')}</span></td><td>${fund.latest_holdings_date ? dateText(fund.latest_holdings_date) : 'Chưa có snapshot'}</td><td>${topNCoverageBadge(fund.holdings_coverage)}</td></tr>`;
   }).join('');
   const categories = [...new Set(fundRows.map((row) => row.asset_code).filter(Boolean))].sort(COLLATOR.compare);
   const filterBar = `<form class="control-bar" data-filter-form><div class="field grow"><label for="fund-query">Tìm quỹ</label><input id="fund-query" name="q" type="search" value="${esc(q)}" placeholder="Mã quỹ, tên quỹ hoặc công ty quản lý"></div><div class="field"><label for="fund-category">Nhóm tài sản</label><select id="fund-category" name="category"><option value="">Tất cả nhóm</option>${categories.map((item) => `<option value="${esc(item)}" ${item === category ? 'selected' : ''}>${esc(categoryText(item))}</option>`).join('')}</select></div><div class="field"><label for="fund-status">Độ phủ</label><select id="fund-status" name="status"><option value="">Tất cả trạng thái</option><option value="with-holdings" ${dataStatus === 'with-holdings' ? 'selected' : ''}>Có snapshot danh mục</option><option value="without-holdings" ${dataStatus === 'without-holdings' ? 'selected' : ''}>Chưa có snapshot</option><option value="partial" ${dataStatus === 'partial' ? 'selected' : ''}>Top-N / một phần</option></select></div><button class="button primary" type="submit">Lọc</button><button class="button" type="button" data-action="reset-filters">Đặt lại</button><span class="toolbar-note">${esc(fundEnvelope.status === 'missing' ? 'Nguồn catalogue chưa có' : `${integer(filtered.length)} kết quả`)}</span></form>`;
@@ -418,24 +523,43 @@ function renderFundDetail(data, fundId) {
   const nav = records(data, 'nav_history').filter((row) => row.fund === fundId);
   const holdings = records(data, 'holdings').filter((row) => row.fund === fundId);
   const events = records(data, 'portfolio_events').filter((row) => row.fund === fundId).sort((a, b) => (b.observed_date || '').localeCompare(a.observed_date || '')).slice(0, 12);
-  const facts = records(data, 'fund_facts').filter((row) => row.fund === fundId);
-  const allocations = facts.filter((row) => row.fact_type === 'allocation');
-  const performance = facts.filter((row) => row.fact_type === 'performance');
+  const factGroup = summarizeFundFacts(records(data, 'fund_facts'), fundId);
+  const allocations = factGroup.allocation;
+  const industries = factGroup.industry;
+  const fees = factGroup.fees;
+  const profile = factGroup.profile;
+  const performance = factGroup.performance;
   const allocationContent = allocations.length ? tableHtml([
     { key: 'asset_name', label: 'Loại tài sản', sortable: false }, { key: 'pct', label: 'Tỷ trọng', numeric: true, sortable: false }, { key: 'report_date', label: 'Ngày báo cáo', sortable: false },
   ], allocations.map((row) => `<tr><td>${esc(row.asset_name || row.asset_code || 'Chưa phân loại')}</td><td class="numeric">${esc(percentFraction(row.pct))}</td><td>${esc(row.report_date ? dateText(row.report_date) : 'Chưa biết')}</td></tr>`).join('')) : emptyPanel('Chưa có cơ cấu tài sản', 'Không tìm thấy allocation.csv cho quỹ này.', '◫');
-  const holdingBody = holdings.map((row) => `<tr><td><a class="ticker-link mono" href="?view=stocks&ticker=${encodeURIComponent(row.ticker)}" data-route>${esc(row.ticker)}</a></td><td class="numeric">${esc(percentFraction(row.weight))}</td><td class="numeric">${esc(integer(row.volume))}</td><td>${esc(row.observed_date ? dateText(row.observed_date) : 'Chưa biết')}</td><td>${esc(row.coverage_type === 'top_n_partial_censored' ? 'Top-N · danh mục bị kiểm duyệt' : 'Nguồn khai báo đầy đủ')}</td><td>${esc(row.source_reference ? row.source_reference : 'Chưa ghi source reference')}</td></tr>`).join('');
+  const industryContent = industries.length ? tableHtml([
+    { key: 'industry', label: 'Ngành (theo nguồn)', sortable: false }, { key: 'pct', label: 'Tỷ trọng', numeric: true, sortable: false }, { key: 'observed_date', label: 'Ngày quan sát', sortable: false },
+  ], industries.slice().sort((a, b) => (Number(b.pct) || 0) - (Number(a.pct) || 0)).map((row) => `<tr><td>${esc(row.industry || 'Chưa phân loại')}</td><td class="numeric">${esc(percentFraction(row.pct))}</td><td>${esc(row.observed_date ? dateText(row.observed_date) : 'Chưa biết')}</td></tr>`).join('')) : emptyPanel('Chưa có phân bổ ngành', 'Không có dòng industry.csv cho quỹ này.', '▤');
+  const feeContent = fees.length ? tableHtml([
+    { key: 'type', label: 'Loại / chương trình', sortable: false }, { key: 'tier', label: 'Bậc / điều kiện', sortable: false }, { key: 'fee', label: 'Mức phí công bố', numeric: true, sortable: false },
+  ], fees.map((row) => {
+    const tier = row.begin != null || row.end != null
+      ? `${row.begin != null ? integer(row.begin) : '0'} → ${row.end != null ? integer(row.end) : '∞'} ${row.unit || ''}`.trim()
+      : 'Cố định / không phân bậc';
+    const typeLabel = row.program ? `${row.type || 'UNKNOWN'} · ${row.program}` : (row.type || 'UNKNOWN');
+    return `<tr><td><span class="mono">${esc(typeLabel)}</span></td><td>${esc(tier)}</td><td class="numeric">${esc(percentPoints(row.fee))}</td></tr>`;
+  }).join('')) : emptyPanel('Chưa có biểu phí', 'Không có dòng fees.csv cho quỹ này.', '—');
+  const holdingBody = holdings.map((row) => `<tr><td><a class="ticker-link mono" href="?view=stocks&ticker=${encodeURIComponent(row.ticker)}" data-route>${esc(row.ticker)}</a></td><td class="numeric">${esc(percentFraction(row.weight))}</td><td class="numeric">${esc(integer(row.volume))}</td><td>${esc(row.observed_date ? dateText(row.observed_date) : 'Chưa biết')}</td><td>${topNCoverageBadge(row.coverage_type)}</td><td>${sourceLink(row.source_reference)}</td></tr>`).join('');
   const eventBody = events.map((row) => `<tr><td>${esc(row.observed_date ? dateText(row.observed_date) : 'Chưa biết')}</td><td><a class="ticker-link mono" href="?view=stocks&ticker=${encodeURIComponent(row.ticker || '')}" data-route>${esc(row.ticker || '—')}</a></td><td>${badge(row.display_label || row.action, 'warning')}</td><td>${esc(row.flag || 'Không có cờ')}</td></tr>`).join('');
   const performanceContent = performance.length ? `<div class="table-wrap"><table><thead><tr><th>Kỳ do nguồn báo cáo</th><th>Giá trị</th><th>Giới hạn</th></tr></thead><tbody>${performance.flatMap((row) => Object.entries(row).filter(([key, value]) => key.startsWith('ret_') && value != null).map(([key, value]) => `<tr><td>${esc(key.replaceAll('_', ' ').toUpperCase())}</td><td>${esc(number(value, 3))}</td><td>Đơn vị / phương pháp nguồn chưa độc lập xác minh</td></tr>`)).join('') || '<tr><td colspan="3" class="no-results">Không có kỳ hiệu suất.</td></tr>'}</tbody></table></div>` : emptyPanel('Hiệu suất chưa khả dụng', 'Không có bảng performance trong archive; không suy hiệu suất khi thiếu NAV phù hợp.', '∅');
+  const mgmtFeeText = profile?.management_fee_pct != null ? `${percentPoints(profile.management_fee_pct)} / năm` : 'Chưa có dữ liệu';
+  const firstIssueText = profile?.first_issue_date ? dateText(profile.first_issue_date) : 'Chưa có dữ liệu';
+  const riskText = profile?.risk_level || 'Chưa có dữ liệu';
   return `<section class="fund-detail-panel" id="fund-detail"><div class="detail-heading"><a class="back-link" href="?view=funds" data-route>← Danh sách quỹ</a><span class="fund-avatar" aria-hidden="true">${esc(fund.fund_id.slice(0, 3))}</span><div><h2>${esc(fund.name || fund.fund_id)}</h2><p><span class="mono">${esc(fund.fund_id)}</span> · ${esc(fund.management_company || 'Công ty quản lý chưa có dữ liệu')} · ${esc(categoryText(fund.asset_code))}</p></div></div>
     ${fund.holdings_coverage ? notice('Độ phủ holdings có giới hạn', fund.holdings_coverage === 'top_n_partial_censored' ? 'Nguồn chỉ lưu top-N; mã ngoài top-N là chưa biết, không thể hiểu là đã bán hết.' : 'Nguồn khai báo danh mục đầy đủ, nhưng chưa được xác minh độc lập.', 'warning') : ''}
     <div class="detail-grid">
       ${panel('NAV / CCQ theo thời gian', 'Chuỗi NAV nguồn và snapshot quan sát được vẽ riêng; không nội suy qua khoảng trống.', renderNavChart(nav))}
-      ${panel('Metadata & coverage', 'Ngày quan sát không đồng nghĩa ngày công bố hoặc hiệu lực.', `<dl class="detail-list"><div><dt>Ngày NAV quan sát</dt><dd>${esc(fund.latest_nav_observation_date ? dateText(fund.latest_nav_observation_date) : 'Chưa có dữ liệu')}</dd></div><div><dt>NAV quan sát</dt><dd>${esc(fund.latest_nav_observation == null ? 'Chưa có dữ liệu' : number(fund.latest_nav_observation, 0))}</dd></div><div><dt>Ngày NAV nguồn</dt><dd>${esc(fund.latest_nav_source_date ? dateText(fund.latest_nav_source_date) : 'Chưa có dữ liệu')}</dd></div><div><dt>Snapshot holdings cuối</dt><dd>${esc(fund.latest_holdings_date ? dateText(fund.latest_holdings_date) : 'Chưa có dữ liệu')}</dd></div><div><dt>Top-N / full source</dt><dd>${esc(fund.holdings_coverage || 'Chưa xác định')}</dd></div><div><dt>Publication time</dt><dd>Chưa có dữ liệu xác minh</dd></div></dl>`)}
+      ${panel('Metadata & hồ sơ công bố', 'Ngày quan sát không đồng nghĩa ngày công bố hoặc hiệu lực; phí quản lý do nguồn báo cáo.', `<dl class="detail-list"><div><dt>Ngày NAV quan sát</dt><dd>${esc(fund.latest_nav_observation_date ? dateText(fund.latest_nav_observation_date) : 'Chưa có dữ liệu')}</dd></div><div><dt>NAV quan sát</dt><dd>${esc(fund.latest_nav_observation == null ? 'Chưa có dữ liệu' : number(fund.latest_nav_observation, 2))}</dd></div><div><dt>Ngày NAV nguồn</dt><dd>${esc(fund.latest_nav_source_date ? dateText(fund.latest_nav_source_date) : 'Chưa có dữ liệu')}</dd></div><div><dt>Snapshot holdings cuối</dt><dd>${esc(fund.latest_holdings_date ? dateText(fund.latest_holdings_date) : 'Chưa có dữ liệu')}</dd></div><div><dt>Phí quản lý (nguồn)</dt><dd>${esc(mgmtFeeText)}</dd></div><div><dt>Ngày phát hành đầu</dt><dd>${esc(firstIssueText)}</dd></div><div><dt>Mức rủi ro (nguồn)</dt><dd>${esc(riskText)}</dd></div><div><dt>Publication time</dt><dd>Chưa có dữ liệu xác minh</dd></div></dl>`)}
     </div>
     <div class="section-heading"><div><h3>Snapshot danh mục được export</h3><p>Chỉ snapshot mới nhất của từng source scope; trọng số thiếu được giữ là chưa biết.</p></div></div>
     ${holdings.length ? tableHtml([{ key: 'ticker', label: 'Mã', sortable: false }, { key: 'weight', label: 'Tỷ trọng', numeric: true, sortable: false }, { key: 'volume', label: 'Khối lượng', numeric: true, sortable: false }, { key: 'observed_date', label: 'Ngày snapshot', sortable: false }, { key: 'coverage_type', label: 'Độ phủ', sortable: false }, { key: 'source_reference', label: 'Nguồn', sortable: false }], holdingBody) : emptyPanel('Chưa có snapshot holdings', 'Không có bản ghi holdings cho quỹ trong export hiện tại.', '≡')}
-    <div class="detail-grid detail-subgrid">${panel('Cơ cấu tài sản', 'Kỳ báo cáo theo dữ liệu đang lưu.', allocationContent)}${panel('Hiệu suất nguồn báo cáo', 'Chỉ hiển thị trường có sẵn; không so sánh nếu thiếu kỳ chung hoặc đơn vị chưa rõ.', performanceContent)}</div>
+    <div class="detail-grid detail-subgrid">${panel('Cơ cấu tài sản', 'Kỳ báo cáo theo dữ liệu đang lưu (tỷ trọng dạng phần trăm danh mục).', allocationContent)}${panel('Phân bổ ngành (nguồn công bố)', 'Chỉ hiển thị các ngành nguồn Fmarket báo cáo trong snapshot mới nhất.', industryContent)}</div>
+    <div class="detail-grid detail-subgrid">${panel('Biểu phí giao dịch / quản lý (nguồn công bố)', 'Đơn vị điểm phần trăm theo biểu phí lưu trong fees.csv; kiểm tra bản cáo bạch trước khi giao dịch.', feeContent)}${panel('Hiệu suất nguồn báo cáo', 'Chỉ hiển thị trường có sẵn; không so sánh nếu thiếu kỳ chung hoặc đơn vị chưa rõ.', performanceContent)}</div>
     <div class="section-heading"><div><h3>Sự kiện danh mục gần đây</h3><p>Sự kiện suy luận/quan sát không phải giao dịch được xác nhận.</p></div><a class="small-link" href="?view=holdings&fund=${encodeURIComponent(fundId)}" data-route>Xem tất cả →</a></div>
     ${events.length ? tableHtml([{ key: 'observed_date', label: 'Ngày', sortable: false }, { key: 'ticker', label: 'Mã', sortable: false }, { key: 'display_label', label: 'Phân loại', sortable: false }, { key: 'flag', label: 'Cờ', sortable: false }], eventBody) : emptyPanel('Chưa có event journal', 'Không có dòng thay đổi danh mục được ghi nhận cho quỹ.', '⇄')}</section>`;
 }
@@ -494,8 +618,8 @@ function renderHoldings(data, params) {
   const sorted = applySortPage(filtered, params, mode === 'events' ? 'observed_date' : 'fund', 15, mode === 'events' ? 'desc' : 'asc');
   const body = mode === 'events' ? sorted.rows.map((row) => {
     const href = `?view=holdings&fund=${encodeURIComponent(row.fund || '')}&event_id=${encodeURIComponent(row.event_id)}`;
-    return `<tr><td>${esc(row.observed_date ? dateText(row.observed_date) : 'Chưa biết')}</td><td><a class="fund-link mono" href="?view=funds&fund=${encodeURIComponent(row.fund || '')}" data-route>${esc(row.fund || '—')}</a></td><td><a class="ticker-link mono" href="?view=stocks&ticker=${encodeURIComponent(row.ticker || '')}" data-route>${esc(row.ticker || '—')}</a></td><td>${badge(row.display_label || row.action, row.evidence_status === 'unconfirmed' ? 'warning' : 'neutral')}</td><td>${esc(row.basis || 'Chưa biết')}</td><td class="numeric">${esc(percentFraction(row.weight_delta))}</td><td class="numeric">${esc(row.volume_change_pct == null ? '—' : percentPoints(row.volume_change_pct * 100))}</td><td>${esc(row.flag || 'Không có cờ')}</td><td>${row.censored ? badge('Top-N · kiểm duyệt', 'warning') : badge(row.evidence_status === 'inferred_not_transaction' ? 'Suy luận' : 'Chưa xác nhận', 'neutral')}</td><td><a class="small-link" href="${href}" data-route>Chi tiết</a></td></tr>`;
-  }).join('') : sorted.rows.map((row) => `<tr><td><a class="fund-link mono" href="?view=funds&fund=${encodeURIComponent(row.fund)}" data-route>${esc(row.fund)}</a></td><td><a class="ticker-link mono" href="?view=stocks&ticker=${encodeURIComponent(row.ticker)}" data-route>${esc(row.ticker)}</a></td><td>${esc(row.asset_class)}</td><td class="numeric">${esc(percentFraction(row.weight))}</td><td class="numeric">${esc(integer(row.volume))}</td><td>${esc(row.observed_date ? dateText(row.observed_date) : 'Chưa biết')}</td><td>${badge(row.coverage_type === 'top_n_partial_censored' ? 'Top-N · bị kiểm duyệt' : 'Nguồn khai báo đầy đủ', 'warning')}</td><td>${esc(row.effective_date ? dateText(row.effective_date) : 'Chưa biết')}</td></tr>`).join('');
+    return `<tr><td>${esc(row.observed_date ? dateText(row.observed_date) : 'Chưa biết')}</td><td><a class="fund-link mono" href="?view=funds&fund=${encodeURIComponent(row.fund || '')}" data-route>${esc(row.fund || '—')}</a></td><td><a class="ticker-link mono" href="?view=stocks&ticker=${encodeURIComponent(row.ticker || '')}" data-route>${esc(row.ticker || '—')}</a></td><td>${badge(row.display_label || row.action, row.evidence_status === 'unconfirmed' ? 'warning' : 'neutral')}</td><td>${esc(row.basis || 'Chưa biết')}</td><td class="numeric">${esc(signedPercentFraction(row.weight_delta))}</td><td class="numeric">${esc(row.volume_change_pct == null ? '—' : signedPercentPoints(row.volume_change_pct * 100))}</td><td>${esc(row.flag || 'Không có cờ')}</td><td>${row.censored ? badge('Top-N', 'warning', 'Vào/rời Top-N không chứng minh mua mới hoặc bán hết') : badge(row.evidence_status === 'inferred_not_transaction' ? 'Suy luận' : 'Chưa xác nhận', 'neutral')}</td><td><a class="small-link" href="${href}" data-route>Chi tiết</a></td></tr>`;
+  }).join('') : sorted.rows.map((row) => `<tr><td><a class="fund-link mono" href="?view=funds&fund=${encodeURIComponent(row.fund)}" data-route>${esc(row.fund)}</a></td><td><a class="ticker-link mono" href="?view=stocks&ticker=${encodeURIComponent(row.ticker)}" data-route>${esc(row.ticker)}</a></td><td>${esc(row.asset_class)}</td><td class="numeric">${esc(percentFraction(row.weight))}</td><td class="numeric">${esc(integer(row.volume))}</td><td>${esc(row.observed_date ? dateText(row.observed_date) : 'Chưa biết')}</td><td>${topNCoverageBadge(row.coverage_type)}</td><td>${esc(row.effective_date ? dateText(row.effective_date) : 'Chưa biết')}</td></tr>`).join('');
   const classifications = [...new Set(allEvents.map((event) => event.classification).filter(Boolean))].sort(COLLATOR.compare);
   const classes = mode === 'events' ? classifications : [...new Set(allHoldings.map((row) => row.asset_class).filter(Boolean))];
   const options = classes.map((value) => `<option value="${esc(value)}" ${classification === value ? 'selected' : ''}>${esc(mode === 'events' ? eventTypeLabel(value) : categoryText(value))}</option>`).join('');
@@ -538,13 +662,38 @@ function eventWhy(event) {
   return 'Không có giải thích phân loại cụ thể; cần kiểm tra dữ liệu nguồn và quy tắc pipeline trước khi diễn giải.';
 }
 
-function stockRecords(data) {
+function stockRecords(data, yuantaUniverse = null) {
   const holdings = records(data, 'holdings');
   const events = records(data, 'portfolio_events');
   const map = new Map();
+  for (const u of yuantaUniverse?.stocks || []) {
+    if (!u?.symbol) continue;
+    map.set(u.symbol, {
+      ticker: u.symbol,
+      company_name: u.company_name || null,
+      exchange: u.exchange || null,
+      macro_group: u.macro_group || null,
+      macro_group_label: u.macro_group_label || null,
+      sub_group_label: u.sub_group_label || u.sector_name || null,
+      last_price: u.last_price ?? null,
+      pe: u.pe ?? null,
+      stock_rating: u.stock_rating ?? null,
+      funds: new Set(),
+      event_count: 0,
+      latest_date: u.scanned_at ? String(u.scanned_at).slice(0, 10) : null,
+      coverage: new Set(),
+      has_yuanta: true,
+    });
+  }
   for (const item of [...holdings, ...events]) {
     if (!item.ticker) continue;
-    if (!map.has(item.ticker)) map.set(item.ticker, { ticker: item.ticker, funds: new Set(), event_count: 0, latest_date: null, coverage: new Set() });
+    if (!map.has(item.ticker)) {
+      map.set(item.ticker, {
+        ticker: item.ticker, company_name: null, exchange: null, macro_group: null,
+        macro_group_label: null, sub_group_label: null, last_price: null, pe: null, stock_rating: null,
+        funds: new Set(), event_count: 0, latest_date: null, coverage: new Set(), has_yuanta: false,
+      });
+    }
     const row = map.get(item.ticker);
     if (item.fund) row.funds.add(item.fund);
     if (item.event_id) row.event_count += 1;
@@ -552,7 +701,12 @@ function stockRecords(data) {
     if (date && (!row.latest_date || date > row.latest_date)) row.latest_date = date;
     if (item.coverage_type) row.coverage.add(item.coverage_type);
   }
-  return [...map.values()].map((row) => ({ ...row, funds: [...row.funds].sort(COLLATOR.compare), coverage: [...row.coverage] })).sort((a, b) => COLLATOR.compare(a.ticker, b.ticker));
+  return [...map.values()].map((row) => ({
+    ...row,
+    funds_count: row.funds.size,
+    funds: [...row.funds].sort(COLLATOR.compare),
+    coverage: [...row.coverage],
+  })).sort((a, b) => COLLATOR.compare(a.ticker, b.ticker));
 }
 function readWatchlist() {
   try {
@@ -564,56 +718,94 @@ function saveWatchlist(items) {
   try { localStorage.setItem('vnfa-watchlist-v1', JSON.stringify([...new Set(items)].slice(0, 100))); } catch { /* storage may be disabled */ }
 }
 function renderStocks(data, params) {
-  const q = (params.get('q') || '').trim().toUpperCase();
+  const yuantaUniverse = data.yuantaUniverse || { status: 'not_synced', count: 0, stocks: [] };
+  const q = (params.get('q') || '').trim();
+  const qLower = q.toLocaleLowerCase('vi');
+  const exFilter = (params.get('exchange') || '').trim().toUpperCase();
+  const mgFilter = (params.get('mgroup') || '').trim().toUpperCase();
   const selected = (params.get('ticker') || '').trim().toUpperCase();
-  const allStocks = stockRecords(data);
-  const filtered = allStocks.filter((row) => !q || row.ticker.includes(q));
+  const stab = params.get('stab') || (yuantaUniverse.status === 'available' ? 'overview' : 'funds');
+  const allStocks = stockRecords(data, yuantaUniverse);
+  const filtered = allStocks.filter((row) => {
+    if (exFilter && row.exchange !== exFilter) return false;
+    if (mgFilter && row.macro_group !== mgFilter) return false;
+    if (!qLower) return true;
+    const hay = `${row.ticker} ${row.company_name || ''} ${row.sub_group_label || ''}`.toLocaleLowerCase('vi');
+    return hay.includes(qLower);
+  });
   const sorted = applySortPage(filtered, params, 'ticker');
-  const body = sorted.rows.map((row) => `<tr><td><a class="ticker-link mono" href="?view=stocks&ticker=${encodeURIComponent(row.ticker)}" data-route>${esc(row.ticker)}</a></td><td>${row.funds.map((fund) => `<a class="small-link mono fund-pill" href="?view=funds&fund=${encodeURIComponent(fund)}" data-route>${esc(fund)}</a>`).join(' ') || '—'}</td><td class="numeric">${row.event_count ? integer(row.event_count) : 'Chưa có event'}</td><td>${row.latest_date ? dateText(row.latest_date) : 'Ngày chưa biết'}</td><td>${row.coverage.map((kind) => kind === 'top_n_partial_censored' ? 'Top-N · censored' : 'Source claimed full').map(esc).join(', ') || 'Chưa xác định'}</td></tr>`).join('');
+  const defaultTab = yuantaUniverse.status === 'available' ? 'overview' : 'funds';
+  const body = sorted.rows.map((row) => `<tr><td><a class="ticker-link mono" href="?view=stocks&ticker=${encodeURIComponent(row.ticker)}&stab=${defaultTab}" data-route>${esc(row.ticker)}</a>${row.company_name ? `<span class="table-sub">${esc(row.company_name)}</span>` : ''}</td><td>${esc(row.exchange || '—')}</td><td>${esc(row.sub_group_label || row.macro_group_label || '—')}</td><td>${row.funds.slice(0, 6).map((fund) => `<a class="small-link mono fund-pill" href="?view=funds&fund=${encodeURIComponent(fund)}" data-route>${esc(fund)}</a>`).join(' ') || '—'}${row.funds.length > 6 ? ` <span class="muted">+${row.funds.length - 6}</span>` : ''}</td><td class="numeric">${row.pe == null ? '—' : number(row.pe, 1)}</td><td class="numeric">${row.stock_rating == null ? '—' : number(row.stock_rating, 0)}</td></tr>`).join('');
   const watchlist = readWatchlist();
   const fundRows = records(data, 'holdings').filter((row) => row.ticker === selected);
   const eventRows = records(data, 'portfolio_events').filter((row) => row.ticker === selected).sort((a, b) => (b.observed_date || '').localeCompare(a.observed_date || ''));
   const currentSelected = allStocks.find((row) => row.ticker === selected);
-  const selectedView = selected ? `<section class="panel stock-detail"><div class="panel-header"><div><div class="stock-ticker">${esc(selected)}</div><p>Reported fund ownership · không phải tín hiệu mua/bán</p></div><button class="button watch-button" type="button" data-watch="${esc(selected)}" aria-pressed="${watchlist.includes(selected)}">${watchlist.includes(selected) ? '✓ Đang theo dõi' : '+ Thêm watchlist'}</button></div>
-    ${currentSelected ? `<p class="muted">Xuất hiện trong ${integer(currentSelected.funds.length)} quỹ có dữ liệu đã export. Ngày mới nhất: ${esc(currentSelected.latest_date ? dateText(currentSelected.latest_date) : 'chưa biết')}.</p>` : notice('Chưa có bằng chứng ownership', `Không tìm thấy ${selected} trong holdings hoặc event export.`, 'warning')}
-    ${fundRows.length ? tableHtml([{ key: 'fund', label: 'Quỹ', sortable: false }, { key: 'weight', label: 'Tỷ trọng báo cáo', numeric: true, sortable: false }, { key: 'volume', label: 'Khối lượng', numeric: true, sortable: false }, { key: 'observed_date', label: 'Ngày snapshot', sortable: false }, { key: 'effective_date', label: 'Ngày nguồn', sortable: false }, { key: 'coverage_type', label: 'Độ phủ', sortable: false }, { key: 'source_reference', label: 'Source', sortable: false }], fundRows.map((row) => `<tr><td><a class="fund-link mono" href="?view=funds&fund=${encodeURIComponent(row.fund)}" data-route>${esc(row.fund)}</a></td><td class="numeric">${esc(percentFraction(row.weight))}</td><td class="numeric">${esc(integer(row.volume))}</td><td>${esc(row.observed_date ? dateText(row.observed_date) : 'Chưa biết')}</td><td>${esc(row.effective_date ? dateText(row.effective_date) : 'Chưa biết')}</td><td>${esc(row.coverage_type)}</td><td>${sourceLink(row.source_reference)}</td></tr>`).join('')) : emptyPanel('Chưa có holdings record', 'Không có snapshot mã này trong export. Không suy missing thành zero.', '⌕')}
-    <div class="section-heading"><div><h3>Portfolio events</h3><p>Chỉ sự kiện quan sát / suy luận của pipeline.</p></div></div>${eventRows.length ? tableHtml([{ key: 'observed_date', label: 'Ngày', sortable: false }, { key: 'fund', label: 'Quỹ', sortable: false }, { key: 'display_label', label: 'Phân loại', sortable: false }, { key: 'basis', label: 'Basis', sortable: false }, { key: 'flag', label: 'Cờ', sortable: false }], eventRows.map((row) => `<tr><td>${esc(row.observed_date ? dateText(row.observed_date) : 'Chưa biết')}</td><td>${esc(row.fund)}</td><td>${badge(row.display_label, 'warning')}</td><td>${esc(row.basis || '—')}</td><td>${esc(row.flag || '—')}</td></tr>`).join('')) : emptyPanel('Chưa có event', 'Không có sự kiện được lưu cho mã này.', '⇄')}</section>` : '';
-  const watchHtml = watchlist.length ? `<div class="watchlist">${watchlist.map((ticker) => `<span class="watch-chip"><a href="?view=stocks&ticker=${encodeURIComponent(ticker)}" data-route>${esc(ticker)}</a><button type="button" data-watch-remove="${esc(ticker)}" aria-label="Xóa ${esc(ticker)} khỏi watchlist">×</button></span>`).join('')}</div>` : `<p class="muted">Watchlist lưu trong localStorage của trình duyệt này; chưa có mã theo dõi.</p>`;
+  const bundleEntry = selected ? (window.__YUANTA_BUNDLES?.get(selected) || null) : null;
+  const { nav: subTabNav, body: yuantaTabBody } = selected
+    ? renderYuantaStockTabs(selected, stab, bundleEntry, params)
+    : { nav: '', body: null };
+
+  const fundOwnershipBody = `${currentSelected?.funds?.length ? `<p class="muted">Xuất hiện trong ${integer(currentSelected.funds.length)} quỹ mở có dữ liệu đã export. Ngày mới nhất: ${esc(currentSelected.latest_date ? dateText(currentSelected.latest_date) : 'chưa biết')}.</p>` : notice('Chưa ghi nhận trong Top-N quỹ mở', `Không tìm thấy ${selected} trong snapshot Top-N hoặc event export của quỹ mở (mã vẫn có thể xem đủ 5 trang dữ liệu thị trường Yuanta ở các tab bên cạnh).`, 'warning')}
+    ${fundRows.length ? tableHtml([{ key: 'fund', label: 'Quỹ', sortable: false }, { key: 'weight', label: 'Tỷ trọng báo cáo', numeric: true, sortable: false }, { key: 'volume', label: 'Khối lượng', numeric: true, sortable: false }, { key: 'observed_date', label: 'Ngày snapshot', sortable: false }, { key: 'effective_date', label: 'Ngày nguồn', sortable: false }, { key: 'coverage_type', label: 'Độ phủ', sortable: false }, { key: 'source_reference', label: 'Source', sortable: false }], fundRows.map((row) => `<tr><td><a class="fund-link mono" href="?view=funds&fund=${encodeURIComponent(row.fund)}" data-route>${esc(row.fund)}</a></td><td class="numeric">${esc(percentFraction(row.weight))}</td><td class="numeric">${esc(integer(row.volume))}</td><td>${esc(row.observed_date ? dateText(row.observed_date) : 'Chưa biết')}</td><td>${esc(row.effective_date ? dateText(row.effective_date) : 'Chưa biết')}</td><td>${topNCoverageBadge(row.coverage_type)}</td><td>${sourceLink(row.source_reference)}</td></tr>`).join('')) : emptyPanel('Chưa có holdings record', 'Không có snapshot quỹ mở cho mã này trong export. Không suy missing thành zero.', '⌕')}
+    <div class="section-heading"><div><h3>Portfolio events (Quỹ mở)</h3><p>Chỉ sự kiện quan sát / suy luận của pipeline quỹ mở.</p></div></div>${eventRows.length ? tableHtml([{ key: 'observed_date', label: 'Ngày', sortable: false }, { key: 'fund', label: 'Quỹ', sortable: false }, { key: 'display_label', label: 'Phân loại', sortable: false }, { key: 'basis', label: 'Basis', sortable: false }, { key: 'flag', label: 'Cờ', sortable: false }], eventRows.map((row) => `<tr><td>${esc(row.observed_date ? dateText(row.observed_date) : 'Chưa biết')}</td><td>${esc(row.fund)}</td><td>${badge(row.display_label, 'warning')}</td><td>${esc(row.basis || '—')}</td><td>${esc(row.flag || '—')}</td></tr>`).join('')) : emptyPanel('Chưa có event', 'Không có sự kiện quỹ mở được lưu cho mã này.', '⇄')}`;
+
+  const selectedView = selected ? `<section class="panel stock-detail"><div class="panel-header"><div><div class="stock-ticker"><h2>${esc(selected)}</h2>${currentSelected?.exchange ? badge(currentSelected.exchange, 'neutral') : ''}${currentSelected?.macro_group_label ? badge(currentSelected.macro_group_label, 'ok') : ''}</div><p>${esc(currentSelected?.company_name || 'Tra cứu sở hữu quỹ mở & 5 phân hệ dữ liệu Yuanta YSradar (tĩnh)')}</p></div><button class="button watch-button" type="button" data-watch="${esc(selected)}" aria-pressed="${watchlist.includes(selected)}">${watchlist.includes(selected) ? '✓ Đang theo dõi' : '+ Thêm watchlist'}</button></div>
+    ${subTabNav}
+    ${stab === 'funds' ? fundOwnershipBody : yuantaTabBody}
+  </section>` : '';
+
+  const watchHtml = watchlist.length ? `<div class="watchlist">${watchlist.map((ticker) => `<span class="watch-chip"><a href="?view=stocks&ticker=${encodeURIComponent(ticker)}&stab=${defaultTab}" data-route>${esc(ticker)}</a><button type="button" data-watch-remove="${esc(ticker)}" aria-label="Xóa ${esc(ticker)} khỏi watchlist">×</button></span>`).join('')}</div>` : `<p class="muted">Watchlist lưu trong localStorage của trình duyệt này; chưa có mã theo dõi.</p>`;
   const stockDataNotice = `${datasetStatusNotice(envelope(data, 'holdings'), 'Holdings')}${datasetStatusNotice(envelope(data, 'portfolio_events'), 'Portfolio events')}`;
-  return `${pageIntro('STOCK RESEARCH', 'Nghiên cứu mã', 'Bằng chứng hiện có chỉ là mã được báo cáo trong holdings và các thay đổi do pipeline phát hiện. Không có fundamentals, định giá, giá thị trường hoặc transaction-level data.')}${stockDataNotice}
-    <div class="stock-layout"><section class="panel"><div class="panel-header"><div><h3>Mã xuất hiện trong dữ liệu quỹ</h3><p>${allStocks.length ? `${integer(allStocks.length)} mã có record trong export.` : 'Chưa có mã được export.'}</p></div></div><form class="control-bar" data-filter-form><div class="field grow"><label for="stock-search">Tìm ticker</label><input id="stock-search" name="q" type="search" value="${esc(q)}" placeholder="VD: FPT"></div><button class="button primary" type="submit">Tìm</button><button class="button" type="button" data-action="reset-filters">Đặt lại</button></form>${allStocks.length ? tableHtml([{ key: 'ticker', label: 'Ticker' }, { key: 'funds', label: 'Quỹ báo cáo' }, { key: 'event_count', label: 'Event count', numeric: true }, { key: 'latest_date', label: 'Ngày cuối' }, { key: 'coverage', label: 'Độ phủ' }], body) + paginationHtml(sorted) : emptyPanel('Chưa có stock evidence', 'Danh mục chưa có trong archive. Không tạo mã ví dụ.', '⌕')}</section>
-    <div class="stacked-panels">${panel('Watchlist cá nhân', 'Lưu cục bộ trên thiết bị hiện tại; không gửi lên server.', watchHtml)}${panel('Dữ liệu chưa có', 'Không tự động lấp các phần thiếu bằng giả định.', `<div class="unavailable-grid"><div class="unavailable-item"><strong>Company fundamentals</strong><span>Chưa có nguồn / dataset.</span></div><div class="unavailable-item"><strong>Valuation / target price</strong><span>Không được tính.</span></div><div class="unavailable-item"><strong>Confirmed transactions</strong><span>Không có blotter.</span></div></div>`)}</div></div>${selectedView}`;
+  const yuantaStatusBox = yuantaUniverse.status === 'available'
+    ? `<div class="unavailable-grid"><div class="unavailable-item"><strong>Độ phủ 3 sàn Yuanta</strong><span>${integer(yuantaUniverse.count)} mã (HOSE: ${integer(yuantaUniverse.by_exchange?.HOSE || 0)}, HNX: ${integer(yuantaUniverse.by_exchange?.HNX || 0)}, UPCOM: ${integer(yuantaUniverse.by_exchange?.UPCOM || 0)})</span></div><div class="unavailable-item"><strong>Phân tách 3 khối ngành</strong><span>Ngân hàng (${integer(yuantaUniverse.by_macro_group?.BANK || 0)}) · TC phi NH (${integer(yuantaUniverse.by_macro_group?.NON_BANK_FINANCIAL || 0)}) · Phi TC &amp; BĐS (${integer(yuantaUniverse.by_macro_group?.NON_FINANCIAL || 0)})</span></div></div>`
+    : `<div class="unavailable-grid"><div class="unavailable-item"><strong>Dữ liệu 3 sàn Yuanta (Trang 1–5)</strong><span>Chưa đồng bộ gói .json.gz tĩnh</span></div><div class="unavailable-item"><strong>Lệnh quét toàn sàn</strong><span><code>python scripts/scan_yuanta_universe.py</code></span></div></div>`;
+
+  return `${pageIntro('STOCK RESEARCH · 3 EXCHANGES', 'Nghiên cứu mã cổ phiếu (HOSE · HNX · UPCOM)', 'Kết hợp bằng chứng sở hữu quỹ mở (Fmarket) và 5 trang phân tích cổ phiếu từ gói dữ liệu tĩnh Yuanta YSradar (Tổng quan, Giao dịch, Tương quan 3 khối ngành tách BĐS, BCTC Q1/2010–nay, Tin tức & sự kiện).')}${stockDataNotice}
+    <div class="stock-layout"><section class="panel"><div class="panel-header"><div><h3>Danh mục mã cổ phiếu (${integer(filtered.length)} / ${integer(allStocks.length)} mã)</h3><p>Chọn mã bất kỳ hoặc nhập mã (VD: ACB) để mở chi tiết 5 trang nghiên cứu bên dưới.</p></div></div>
+    <form class="control-bar" data-filter-form>
+      <div class="field grow"><label for="stock-search">Tìm mã / tên công ty</label><input id="stock-search" name="q" type="search" value="${esc(q)}" placeholder="VD: ACB, FPT, Vinhomes"></div>
+      <div class="field"><label for="stock-exchange">Sàn</label><select id="stock-exchange" name="exchange"><option value="">Cả 3 sàn</option>${['HOSE', 'HNX', 'UPCOM'].map((ex) => `<option value="${ex}" ${exFilter === ex ? 'selected' : ''}>${ex}</option>`).join('')}</select></div>
+      <div class="field"><label for="stock-mgroup">Khối ngành (3 nhóm)</label><select id="stock-mgroup" name="mgroup"><option value="">Tất cả khối</option><option value="BANK" ${mgFilter === 'BANK' ? 'selected' : ''}>Ngân hàng</option><option value="NON_BANK_FINANCIAL" ${mgFilter === 'NON_BANK_FINANCIAL' ? 'selected' : ''}>Tài chính phi ngân hàng</option><option value="NON_FINANCIAL" ${mgFilter === 'NON_FINANCIAL' ? 'selected' : ''}>Phi tài chính (gồm BĐS)</option></select></div>
+      <button class="button primary" type="submit">Lọc</button>
+      <button class="button" type="button" data-action="reset-filters">Đặt lại</button>
+    </form>
+    ${allStocks.length ? tableHtml([{ key: 'ticker', label: 'Mã / Doanh nghiệp' }, { key: 'exchange', label: 'Sàn' }, { key: 'sub_group_label', label: 'Ngành (tách BĐS)' }, { key: 'funds_count', label: 'Quỹ mở nắm giữ' }, { key: 'pe', label: 'P/E', numeric: true }, { key: 'stock_rating', label: 'Rating (Yuanta)', numeric: true }], body, { sort: sorted.key, direction: sorted.direction }) + paginationHtml(sorted) : emptyPanel('Chưa có dữ liệu cổ phiếu', 'Hãy chạy export_dashboard.py hoặc scan_yuanta_universe.py.', '⌕')}</section>
+    <div class="stacked-panels">${panel('Tra cứu trực tiếp theo mã (VD: ACB)', 'Mở nhanh Trang 1–5 cho bất kỳ mã nào trên 3 sàn.', `<form class="control-bar" data-filter-form><input type="hidden" name="stab" value="overview"><div class="field grow"><label for="direct-ticker">Mã CK</label><input id="direct-ticker" name="ticker" type="search" value="${esc(selected)}" placeholder="Nhập mã: ACB, VCB, VHM, SSI…"></div><button class="button primary" type="submit">Mở 5 trang</button></form>`)}${panel('Watchlist cá nhân', 'Lưu cục bộ trên thiết bị hiện tại; không gửi lên server.', watchHtml)}${panel('Trạng thái kho dữ liệu 3 sàn Yuanta', 'Tệp tĩnh .json.gz trên cùng origin; không gọi trực tiếp API ngoài từ trình duyệt.', yuantaStatusBox)}</div></div>${selectedView}`;
+}
+
+export function resolveCompareState(funds, navRecords, { category = '', a = '', b = '' } = {}) {
+  const candidates = (funds || []).filter((row) => row.asset_code && (!category || row.asset_code === category));
+  const fundMap = new Map((funds || []).map((fund) => [fund.fund_id, fund]));
+  const assetA = fundMap.get(a)?.asset_code;
+  const assetB = fundMap.get(b)?.asset_code;
+  let result;
+  if (a && b && a !== b && (!assetA || !assetB)) {
+    result = { status: 'unknown_categories', dates: [], seriesA: [], seriesB: [] };
+  } else if (a && b && a !== b && assetA !== assetB) {
+    result = { status: 'incompatible_categories', dates: [], seriesA: [], seriesB: [] };
+  } else if ((a && category && assetA && assetA !== category) || (b && category && assetB && assetB !== category)) {
+    result = { status: 'selection_outside_category', dates: [], seriesA: [], seriesB: [] };
+  } else {
+    result = compareNavSeries(navRecords || [], a, b);
+  }
+  return { category, fundA: a, fundB: b, candidates, fundMap, result };
 }
 
 function renderCompare(data, params) {
   const funds = records(data, 'funds');
-  const category = params.get('category') || '';
-  const candidates = funds.filter((row) => row.asset_code && (!category || row.asset_code === category));
-  const fundA = params.get('a') || '';
-  const fundB = params.get('b') || '';
-  const fundMap = new Map(funds.map((fund) => [fund.fund_id, fund]));
-  const assetA = fundMap.get(fundA)?.asset_code;
-  const assetB = fundMap.get(fundB)?.asset_code;
-  let result;
-  if (fundA && fundB && fundA !== fundB && (!assetA || !assetB)) {
-    result = { status: 'unknown_categories', dates: [], seriesA: [], seriesB: [] };
-  } else if (fundA && fundB && fundA !== fundB && assetA !== assetB) {
-    result = { status: 'incompatible_categories', dates: [], seriesA: [], seriesB: [] };
-  } else if (fundA && fundB && fundA !== fundB && category && (assetA !== category || assetB !== category)) {
-    result = { status: 'selection_outside_category', dates: [], seriesA: [], seriesB: [] };
-  } else {
-    result = compareNavSeries(records(data, 'nav_history'), fundA, fundB);
-  }
+  const { category, fundA, fundB, candidates, fundMap, result } = resolveCompareState(
+    funds, records(data, 'nav_history'),
+    { category: params.get('category') || '', a: params.get('a') || '', b: params.get('b') || '' },
+  );
   const groups = [...new Set(funds.map((row) => row.asset_code).filter(Boolean))].sort(COLLATOR.compare);
   const selectOptions = (selected) => `<option value="">Chọn quỹ</option>${candidates.map((fund) => `<option value="${esc(fund.fund_id)}" ${fund.fund_id === selected ? 'selected' : ''}>${esc(fund.fund_id)} · ${esc(fund.name)}</option>`).join('')}`;
-  const controls = `<form class="control-bar" data-filter-form><div class="field"><label for="compare-category">Nhóm so sánh</label><select id="compare-category" name="category"><option value="">Chọn nhóm trước</option>${groups.map((group) => `<option value="${esc(group)}" ${group === category ? 'selected' : ''}>${esc(categoryText(group))}</option>`).join('')}</select></div><div class="field grow"><label for="compare-a">Quỹ A</label><select id="compare-a" name="a">${selectOptions(fundA)}</select></div><div class="field grow"><label for="compare-b">Quỹ B</label><select id="compare-b" name="b">${selectOptions(fundB)}</select></div><button class="button primary" type="submit">So sánh</button><button class="button" type="button" data-action="reset-filters">Đặt lại</button></form>`;
+  const controls = `<form class="control-bar" data-filter-form><div class="field"><label for="compare-category">Nhóm so sánh</label><select id="compare-category" name="category"><option value="">Tất cả nhóm (cùng loại khi so sánh)</option>${groups.map((group) => `<option value="${esc(group)}" ${group === category ? 'selected' : ''}>${esc(categoryText(group))}</option>`).join('')}</select></div><div class="field grow"><label for="compare-a">Quỹ A</label><select id="compare-a" name="a">${selectOptions(fundA)}</select></div><div class="field grow"><label for="compare-b">Quỹ B</label><select id="compare-b" name="b">${selectOptions(fundB)}</select></div><button class="button primary" type="submit">So sánh</button><button class="button" type="button" data-action="reset-filters">Đặt lại</button></form>`;
   let compareContent;
   if (result.status === 'available') {
-    const fundMap = new Map(funds.map((fund) => [fund.fund_id, fund]));
     const fa = fundMap.get(fundA); const fb = fundMap.get(fundB);
     const navA = records(data, 'nav_history').filter((row) => row.fund === fundA && row.series_type === 'nav_history');
     const navB = records(data, 'nav_history').filter((row) => row.fund === fundB && row.series_type === 'nav_history');
-    compareContent = `<div class="notice warning"><span class="notice-icon" aria-hidden="true">i</span><div><strong>So sánh mô tả, không phải ranking</strong><p>Chỉ dùng các ngày NAV nguồn trùng chính xác; đây là biến động NAV đơn giản trên cùng ngày đầu/cuối. Không điều chỉnh phân phối, benchmark, risk, phí hoặc missing daily dates; publication time chưa biết.</p></div></div><div class="compare-summary"><div><small>${esc(fa?.fund_id || fundA)} · ${esc(categoryText(fa?.asset_code))}</small><strong>${esc(percentPoints(result.changeA))}</strong><span>NAV change · ${esc(dateText(result.start))} → ${esc(dateText(result.end))}</span></div><div class="compare-separator">vs</div><div><small>${esc(fb?.fund_id || fundB)} · ${esc(categoryText(fb?.asset_code))}</small><strong>${esc(percentPoints(result.changeB))}</strong><span>NAV change · ${esc(dateText(result.start))} → ${esc(dateText(result.end))}</span></div></div>${renderNormalizedCompareChart(result)}<div class="compare-footnote">Ngày chung: ${integer(result.dates.length)} · Chuỗi A có ${integer(navA.length)} điểm trong export; chuỗi B có ${integer(navB.length)} điểm. Không xếp hạng quỹ.</div>`;
+    compareContent = `<div class="notice warning"><span class="notice-icon" aria-hidden="true">i</span><div><strong>So sánh mô tả, không phải ranking</strong><p>Chỉ dùng các ngày NAV nguồn trùng chính xác; đây là biến động NAV đơn giản trên cùng ngày đầu/cuối. Không điều chỉnh phân phối, benchmark, risk, phí hoặc missing daily dates; publication time chưa biết.</p></div></div><div class="compare-summary"><div><small>${esc(fa?.fund_id || fundA)} · ${esc(categoryText(fa?.asset_code))}</small><strong>${esc(signedPercentPoints(result.changeA))}</strong><span>NAV change · ${esc(dateText(result.start))} → ${esc(dateText(result.end))}</span></div><div class="compare-separator">vs</div><div><small>${esc(fb?.fund_id || fundB)} · ${esc(categoryText(fb?.asset_code))}</small><strong>${esc(signedPercentPoints(result.changeB))}</strong><span>NAV change · ${esc(dateText(result.start))} → ${esc(dateText(result.end))}</span></div></div>${renderNormalizedCompareChart(result)}<div class="compare-footnote">Ngày chung: ${integer(result.dates.length)} · Chuỗi A có ${integer(navA.length)} điểm trong export; chuỗi B có ${integer(navB.length)} điểm. Không xếp hạng quỹ.</div>`;
   } else if (result.status === 'insufficient_common_dates') {
     compareContent = emptyPanel('Chưa đủ ngày NAV chung', 'Cần ít nhất hai ngày NAV nguồn trùng chính xác cho cả hai quỹ. Snapshot ngày quan sát không dùng để tính hiệu suất.', '▥');
   } else if (result.status === 'duplicate_source_dates') {
@@ -623,7 +815,7 @@ function renderCompare(data, params) {
   } else if (result.status === 'unknown_categories') {
     compareContent = emptyPanel('Chưa xác định được nhóm tài sản', 'Thiếu category metadata để khẳng định hai quỹ có thể so sánh; metric không được tính.', '▥');
   } else if (result.status === 'selection_outside_category') {
-    compareContent = emptyPanel('Quỹ không thuộc nhóm đang lọc', 'Hãy chọn hai quỹ trong category hiện tại hoặc xóa bộ lọc nhóm.', '▥');
+    compareContent = `<div class="panel-empty"><div><div class="empty-mark" aria-hidden="true">▥</div><strong>Quỹ đang chọn trên URL không thuộc nhóm đang lọc</strong><p>Hãy chọn hai quỹ trong nhóm ${esc(categoryText(category))} hoặc xóa lựa chọn cũ để tiếp tục.</p><button class="button" type="button" data-action="clear-incompatible-compare">Xóa lựa chọn ngoài nhóm</button></div></div>`;
   } else {
     compareContent = emptyPanel('Chưa chọn đủ quỹ', 'Chọn hai quỹ cùng nhóm có dữ liệu NAV nguồn. Quỹ trái phiếu và cổ phiếu không được so sánh như cùng mục tiêu rủi ro.', '▥');
   }
@@ -663,9 +855,20 @@ function renderQuality(data, params) {
   const body = sorted.rows.map((issue) => `<tr class="issue-row" aria-selected="${params.get('issue') === issue.issue_id}"><td><button class="issue-select" type="button" data-issue="${esc(issue.issue_id)}" aria-label="Mở chi tiết finding ${esc(issue.dataset)}"><span class="issue-severity ${esc(issue.severity)}">${issue.severity === 'error' ? '!' : issue.severity === 'warning' ? '△' : 'i'} ${esc(issue.severity)}</span></button></td><td><span class="mono">${esc(issue.dataset)}</span>${issue.fund ? `<span class="table-sub">${esc(issue.fund)}</span>` : ''}</td><td>${esc(issue.message)}</td><td class="numeric">${issue.affected_records == null ? 'Chưa biết' : integer(issue.affected_records)}</td><td>${esc(issue.detected_at ? dateTimeText(issue.detected_at) : 'Chưa ghi nhận')}</td></tr>`).join('');
   const selected = issues.find((issue) => issue.issue_id === params.get('issue'));
   const statusCounts = summary.source_time_coverage || {};
-  const cards = `<div class="quality-grid">${metric('Dataset có trong archive', integer(datasets.filter((row) => ['available','empty'].includes(row.status)).length), `${datasets.length ? `${datasets.length} loại đã kiểm tra` : 'Inventory chưa có'}`, '▤')}${metric('Publication time chưa có', statusCounts.published_at_missing == null ? 'Chưa có dữ liệu' : integer(statusCounts.published_at_missing), 'Unknown được giữ là unknown; không suy từ effective date', '◷')}${metric('Source reference thiếu', statusCounts.source_reference_missing == null ? 'Chưa có dữ liệu' : integer(statusCounts.source_reference_missing), 'Đếm trong observation sidecar đã export', '↗')}</div>`;
-  const datasetBody = datasets.map((item) => `<tr><td><span class="mono">${esc(item.dataset)}</span></td><td>${badge(statusText(item.status), statusTone(item.status))}</td><td class="numeric">${item.observed_rows == null ? 'Chưa có dữ liệu' : integer(item.observed_rows)}</td><td>${item.latest_date ? dateText(item.latest_date) : 'Chưa ghi nhận'}</td><td>${item.age_days_at_reference == null ? 'Chưa tính' : `${integer(item.age_days_at_reference)} ngày · SLA chưa cấu hình`}</td><td>${esc(item.quality_status || 'Chưa đánh giá')}</td><td>${integer(item.validation_errors)}</td><td>${integer(item.validation_warnings)}</td></tr>`).join('');
-  const dataTable = datasets.length ? tableHtml([{key:'dataset',label:'Dataset',sortable:false},{key:'status',label:'Trạng thái',sortable:false},{key:'observed_rows',label:'Số dòng',numeric:true,sortable:false},{key:'latest_date',label:'Ngày cuối',sortable:false},{key:'age_days_at_reference',label:'Tuổi dữ liệu',sortable:false},{key:'quality_status',label:'Validation',sortable:false},{key:'validation_errors',label:'Errors',numeric:true,sortable:false},{key:'validation_warnings',label:'Warnings',numeric:true,sortable:false}], datasetBody, { className:'quality-table' }) : emptyPanel('Chưa có inventory','Export chưa có metadata dataset.','◎');
+  const pubMissing = formatMissingRate(statusCounts.published_at_missing, statusCounts.observation_records);
+  const srcRefMissing = formatMissingRate(statusCounts.source_reference_missing, statusCounts.observation_records);
+  const staleDatasetCount = datasets.filter((row) => row.freshness_assessment === 'stale').length;
+  const cards = `<div class="quality-grid">${metric('Dataset có trong archive', integer(datasets.filter((row) => ['available','empty'].includes(row.status)).length), `${datasets.length ? `${datasets.length} loại đã kiểm tra` : 'Inventory chưa có'}`, '▤')}${metric('Dataset vượt SLA độ mới', integer(staleDatasetCount), Object.keys(summary.freshness_sla_thresholds_days || {}).length ? 'Đánh giá trên các dataset có cấu hình SLA' : 'Chưa cấu hình SLA độ mới', '◷')}${metric('Publication time chưa có', pubMissing.value, pubMissing.basis, '◷')}${metric('Source reference thiếu', srcRefMissing.value, srcRefMissing.basis, '↗')}</div>`;
+  const datasetBody = datasets.map((item) => {
+    const fresh = formatFreshness(item);
+    const anomWarn = item.anomaly_warnings;
+    const structWarn = item.structural_warnings;
+    const warnCell = anomWarn != null && structWarn != null
+      ? `${integer(anomWarn)}<span class="table-sub">${integer(structWarn)} cấu trúc</span>`
+      : integer(item.validation_warnings);
+    return `<tr><td><span class="mono">${esc(item.dataset)}</span></td><td>${badge(statusText(item.status), statusTone(item.status))}</td><td class="numeric">${item.observed_rows == null ? 'Chưa có dữ liệu' : integer(item.observed_rows)}</td><td>${item.latest_date ? dateText(item.latest_date) : 'Chưa ghi nhận'}</td><td>${badge(fresh.label, fresh.tone, fresh.detail)}${item.age_days_at_reference != null ? `<span class="table-sub">${integer(item.age_days_at_reference)} ngày</span>` : ''}</td><td>${esc(item.quality_status || 'Chưa đánh giá')}</td><td class="numeric">${integer(item.validation_errors)}</td><td class="numeric">${warnCell}</td></tr>`;
+  }).join('');
+  const dataTable = datasets.length ? tableHtml([{key:'dataset',label:'Dataset',sortable:false},{key:'status',label:'Trạng thái',sortable:false},{key:'observed_rows',label:'Số dòng',numeric:true,sortable:false},{key:'latest_date',label:'Ngày cuối',sortable:false},{key:'age_days_at_reference',label:'Freshness / tuổi',sortable:false},{key:'quality_status',label:'Validation',sortable:false},{key:'validation_errors',label:'Errors',numeric:true,sortable:false},{key:'validation_warnings',label:'Warnings (bất thường)',numeric:true,sortable:false}], datasetBody, { className:'quality-table' }) : emptyPanel('Chưa có inventory','Export chưa có metadata dataset.','◎');
   const datasetOptions = [...new Set(issues.map((issue) => issue.dataset).filter(Boolean))].sort(COLLATOR.compare);
   const filters = `<form class="control-bar" data-filter-form><div class="field grow"><label for="quality-search">Tìm vấn đề</label><input id="quality-search" name="q" type="search" value="${esc(q)}" placeholder="Dataset, mã quỹ, finding code"></div><div class="field"><label for="quality-severity">Severity</label><select id="quality-severity" name="severity"><option value="">Tất cả</option>${['error','warning','info'].map((item)=>`<option value="${item}" ${severity===item?'selected':''}>${item}</option>`).join('')}</select></div><div class="field"><label for="quality-dataset">Dataset</label><select id="quality-dataset" name="dataset"><option value="">Tất cả dataset</option>${datasetOptions.map((item)=>`<option value="${esc(item)}" ${datasetFilter===item?'selected':''}>${esc(item)}</option>`).join('')}</select></div><button class="button primary" type="submit">Lọc</button><button class="button" type="button" data-action="reset-filters">Đặt lại</button></form>`;
   const issueTable = issues.length ? tableHtml([{key:'severity',label:'Severity'},{key:'dataset',label:'Dataset / fund'},{key:'message',label:'Giải thích'},{key:'affected_records',label:'Số bản ghi',numeric:true},{key:'detected_at',label:'Detection time'}], body, {className:'quality-table'}) + paginationHtml(sorted) : emptyPanel('Chưa có finding đã export','Nếu dataset thiếu, thiếu đó được liệt kê là trạng thái archive chứ không được xem pipeline failure.','◎');
@@ -676,11 +879,15 @@ function renderQuality(data, params) {
 function renderPipeline(data) {
   const status = envelope(data, 'pipeline_status').summary || {};
   const summary = status.latest_collector_summary;
+  const wf = status.workflow_status_record || null;
   const events = records(data, 'source_events');
   const outcomes = status.source_request_outcomes || {};
   const recent = events.slice().sort((a, b) => (b.completed_at || '').localeCompare(a.completed_at || '')).slice(0, 20);
-  const body = recent.map((event) => `<tr><td>${esc(dateTimeText(event.started_at))}</td><td>${esc(event.provider || 'Chưa biết')}</td><td><code>${esc(event.endpoint || 'Source reference thiếu')}</code></td><td>${badge(event.status || 'unknown', statusTone(event.status))}</td><td>${event.http_status == null ? '—' : integer(event.http_status)}</td><td class="numeric">${event.record_count == null ? 'Chưa biết' : integer(event.record_count)}</td><td class="numeric">${event.retry_attempts == null ? '—' : integer(event.retry_attempts)}</td></tr>`).join('');
-  const collectorCounts = summary ? `<div class="pipeline-counts"><div><span>Ngày ứng dụng ghi nhận</span><strong>${esc(summary.date ? dateText(summary.date) : 'Chưa ghi nhận')}</strong></div><div><span>Quỹ xử lý thành công</span><strong>${summary.n_ok == null ? 'Chưa có dữ liệu' : integer(summary.n_ok)}</strong></div><div><span>Quỹ lỗi / partial</span><strong>${summary.n_failed == null ? 'Chưa có dữ liệu' : integer(summary.n_failed)} / ${summary.n_partial == null ? 'Chưa có dữ liệu' : integer(summary.n_partial)}</strong></div><div><span>Quality warnings / errors</span><strong>${summary.n_quality_warnings == null ? 'Chưa có dữ liệu' : integer(summary.n_quality_warnings)} / ${summary.n_quality_errors == null ? 'Chưa có dữ liệu' : integer(summary.n_quality_errors)}</strong></div><div><span>Observations được append</span><strong>${summary.n_provenance_observations == null ? 'Chưa có dữ liệu' : integer(summary.n_provenance_observations)}</strong></div><div><span>Exit status của workflow</span><strong>Chưa được export / xác minh</strong></div></div>` : emptyPanel('Chưa có collector summary', 'last_run.json chưa có trong archive. Không suy thành công từ các tệp khác.', '⌁');
+  const body = recent.map((event) => `<tr><td>${esc(dateTimeText(event.started_at))}</td><td>${esc(event.provider || 'Chưa biết')}</td><td><span class="mono">${esc(event.fund_code || '—')}</span></td><td><code>${esc(event.endpoint || 'Source reference thiếu')}</code></td><td>${badge(event.status || 'unknown', statusTone(event.status))}</td><td class="numeric">${event.http_status == null ? '—' : integer(event.http_status)}</td><td class="numeric">${event.record_count == null ? 'Chưa biết' : integer(event.record_count)}</td><td class="numeric">${event.retry_attempts == null ? '—' : integer(event.retry_attempts)}</td></tr>`).join('');
+  const wfExitText = wf
+    ? `${wf.conclusion}${wf.collector_exit_code != null ? ` (exit ${wf.collector_exit_code})` : ''} · budget ${wf.budget_status || 'unknown'}`
+    : 'Chưa được export / xác minh';
+  const collectorCounts = summary ? `<div class="pipeline-counts"><div><span>Ngày ứng dụng ghi nhận</span><strong>${esc(summary.date ? dateText(summary.date) : 'Chưa ghi nhận')}</strong></div><div><span>Quỹ xử lý thành công</span><strong>${summary.n_ok == null ? 'Chưa có dữ liệu' : integer(summary.n_ok)}</strong></div><div><span>Quỹ lỗi / partial</span><strong>${summary.n_failed == null ? 'Chưa có dữ liệu' : integer(summary.n_failed)} / ${summary.n_partial == null ? 'Chưa có dữ liệu' : integer(summary.n_partial)}</strong></div><div><span>Quality warnings / errors</span><strong>${summary.n_quality_warnings == null ? 'Chưa có dữ liệu' : integer(summary.n_quality_warnings)} / ${summary.n_quality_errors == null ? 'Chưa có dữ liệu' : integer(summary.n_quality_errors)}</strong></div><div><span>Observations được append</span><strong>${summary.n_provenance_observations == null ? 'Chưa có dữ liệu' : integer(summary.n_provenance_observations)}</strong></div><div><span>Exit status của workflow</span><strong>${esc(wfExitText)}</strong></div></div>` : emptyPanel('Chưa có collector summary', 'last_run.json chưa có trong archive. Không suy thành công từ các tệp khác.', '⌁');
   const outcomeRows = Object.entries(outcomes).map(([key, count]) => `<div><span>${esc(key)}</span><strong>${integer(count)}</strong></div>`).join('') || `<div><span>Request outcomes</span><strong>Chưa có dữ liệu</strong></div>`;
   const pipelineNotice = datasetStatusNotice(envelope(data, 'pipeline_status'), 'Pipeline metadata');
   const sourceEventsEnvelope = envelope(data, 'source_events');
@@ -688,10 +895,13 @@ function renderPipeline(data) {
   const sourceLimitNotice = sourceEventsEnvelope.truncated
     ? notice('Lịch sử request được giới hạn', `Bảng chỉ hiển thị ${integer(events.length)} request gần nhất; ledger đã lưu ${status.source_request_count == null ? 'chưa xác định' : integer(status.source_request_count)} request.`, 'warning')
     : '';
+  const wfTitleMap = { success: 'thành công (sanitized record)', failure: 'thất bại (sanitized record)', partial: 'một phần', cancelled: 'đã hủy' };
+  const heroTitle = wf ? `Trạng thái workflow ingest: ${wfTitleMap[wf.conclusion] || wf.conclusion}` : 'Trạng thái workflow ingest: chưa xác minh';
+  const heroSymbol = wf?.conclusion === 'success' ? '✓' : wf?.conclusion === 'failure' ? '!' : '?';
   return `${pageIntro('PIPELINE HEALTH', 'Sức khỏe pipeline', 'Request outcomes được lưu có thể xác minh từng lần gọi, nhưng không chứng minh toàn bộ GitHub Actions job hoàn tất thành công.')}${pipelineNotice}${sourceEventsNotice}${sourceLimitNotice}
-    <div class="pipeline-hero"><span class="pipeline-symbol" aria-hidden="true">?</span><div><h3>Trạng thái workflow ingest: chưa xác minh</h3><p>${esc(status.status_explanation || 'Không có sanitized GitHub Actions run metadata trong archive hiện tại.')}<br>Latest source request: ${esc(status.latest_source_request?.completed_at ? dateTimeText(status.latest_source_request.completed_at) : 'chưa ghi nhận')}.</p><a class="actions-link" href="https://github.com/FTU-kudo/VN_Fund_Analysis/actions/workflows/daily.yml" target="_blank" rel="noreferrer">Mở GitHub Actions workflow ↗</a></div></div>
-    <div class="pipeline-columns">${panel('Collector summary (chỉ số được ghi)', 'Bản ghi last_run không bao gồm exit status của workflow.', collectorCounts)}${panel('Source request outcomes', 'Chỉ các request đã ghi vào source_runs.csv; request chưa lưu có thể không xuất hiện.', `<div class="pipeline-counts">${outcomeRows}</div><p class="muted">Số request trong ledger: ${status.source_request_count == null ? 'Chưa có dữ liệu' : integer(status.source_request_count)} · Không có body hoặc credential trong export.</p>`)}</div>
-    <div class="section-heading"><div><h3>Source requests gần nhất</h3><p>Timestamp là request start/completion đã lưu; endpoint được sanitize.</p></div></div>${events.length ? tableHtml([{key:'started_at',label:'Bắt đầu',sortable:false},{key:'provider',label:'Provider',sortable:false},{key:'endpoint',label:'Endpoint',sortable:false},{key:'status',label:'Kết quả',sortable:false},{key:'http_status',label:'HTTP',numeric:true,sortable:false},{key:'record_count',label:'Rows',numeric:true,sortable:false},{key:'retry_attempts',label:'Retries',numeric:true,sortable:false}], body) : emptyPanel('Chưa có source request event','source_runs.csv không có request đã lưu. Đây không phải bằng chứng nguồn đang down hoặc rỗng.','⌁')}`;
+    <div class="pipeline-hero"><span class="pipeline-symbol" aria-hidden="true">${heroSymbol}</span><div><h3>${esc(heroTitle)}</h3><p>${esc(status.status_explanation || 'Không có sanitized GitHub Actions run metadata trong archive hiện tại.')}<br>Latest source request: ${esc(status.latest_source_request?.completed_at ? dateTimeText(status.latest_source_request.completed_at) : 'chưa ghi nhận')}.</p><a class="actions-link" href="https://github.com/FTU-kudo/VN_Fund_Analysis/actions/workflows/daily.yml" target="_blank" rel="noreferrer">Mở GitHub Actions workflow ↗</a></div></div>
+    <div class="pipeline-columns">${panel('Collector summary (chỉ số được ghi)', 'Bản ghi last_run kết hợp workflow_status.json đã sanitize (nếu có).', collectorCounts)}${panel('Source request outcomes', 'Chỉ các request đã ghi vào source_runs.csv; request lịch sử chưa ghi fund_code sẽ giữ là —.', `<div class="pipeline-counts">${outcomeRows}</div><p class="muted">Số request trong ledger: ${status.source_request_count == null ? 'Chưa có dữ liệu' : integer(status.source_request_count)} · Không có body hoặc credential trong export.</p>`)}</div>
+    <div class="section-heading"><div><h3>Source requests gần nhất</h3><p>Timestamp là request start/completion đã lưu; endpoint được sanitize.</p></div></div>${events.length ? tableHtml([{key:'started_at',label:'Bắt đầu',sortable:false},{key:'provider',label:'Provider',sortable:false},{key:'fund_code',label:'Mã quỹ',sortable:false},{key:'endpoint',label:'Endpoint',sortable:false},{key:'status',label:'Kết quả',sortable:false},{key:'http_status',label:'HTTP',numeric:true,sortable:false},{key:'record_count',label:'Rows',numeric:true,sortable:false},{key:'retry_attempts',label:'Retries',numeric:true,sortable:false}], body) : emptyPanel('Chưa có source request event','source_runs.csv không có request đã lưu. Đây không phải bằng chứng nguồn đang down hoặc rỗng.','⌁')}`;
 }
 
 function renderMethodology() {
@@ -703,9 +913,9 @@ function renderMethodology() {
       <article class="method-card"><h3>Top-N coverage & censoring</h3><p>Danh sách top-N không phải full portfolio. Mã rời top-N có thể chỉ giảm thứ hạng hoặc vượt ra ngoài phạm vi dữ liệu; không kết luận bán hết. Full holdings do importer nhận từ factsheet được gắn là nguồn khai báo, chưa independently verified.</p></article>
       <article class="method-card"><h3>Corporate action</h3><p><code>CORP_ACTION?</code> là cờ heuristic khi nhiều quỹ có biến động gần nhau trong lookback. Cần đối chiếu với lịch quyền chính thức; không tự điều chỉnh thành transaction event.</p></article>
       <article class="method-card"><h3>NAV comparison</h3><p>Khi có hai quỹ cùng nhóm và ít nhất hai ngày NAV nguồn trùng chính xác, dashboard hiển thị biến động NAV đơn giản trên khoảng chung. Không nội suy, không dùng observed snapshots, không gọi đây là total return; không điều chỉnh phân phối, benchmark, risk hoặc phí.</p></article>
-      <article class="method-card"><h3>Freshness / stale</h3><p>Giao diện hiển thị last date và age khi có. Hiện không có SLA freshness theo dataset nên không tự gắn nhãn stale. Ngày date-only và timestamp không timezone không được đổi thành thời điểm PIT chính xác.</p></article>
-      <article class="method-card"><h3>Pipeline outcome</h3><p>Source request thành công, collector counter hoặc file cũ không chứng minh GitHub Actions job success. Status tổng thể chỉ được hiển thị khi có metadata run đáng tin cậy; hiện trang liên kết tới Actions để người dùng xác minh trực tiếp.</p></article>
-      <article class="method-card"><h3>Stock research</h3><p>Fund ownership và thay đổi báo cáo là bằng chứng holdings, không phải buy signal. Repository hiện không cung cấp fundamentals, valuation, target price, market price hoặc transaction-level records; các module đó được đánh dấu chưa khả dụng.</p></article>
+      <article class="method-card"><h3>Freshness / stale</h3><p>Giao diện hiển thị last date, age và đánh giá SLA độ mới trên các dataset đã được phê duyệt ngưỡng trong <code>config.toml</code> (45d cho holdings/allocation, 3d cho nav_snapshots, 180d cho fees); các dataset khác giữ trạng thái <code>not_assessed_no_sla</code>. Ngày date-only không được đổi thành thời điểm PIT chính xác.</p></article>
+      <article class="method-card"><h3>Pipeline outcome</h3><p>Source request thành công hoặc collector counter không tự chứng minh GitHub Actions job success. Status tổng thể chỉ hiển thị khi có <code>workflow_status.json</code> đã sanitize (không chứa token/log thô); trang luôn liên kết tới Actions để kiểm chứng trực tiếp.</p></article>
+      <article class="method-card"><h3>Stock research &amp; Yuanta 3-exchange lake</h3><p>Mục Nghiên cứu mã kết hợp sở hữu quỹ mở (Fmarket) với gói tĩnh <code>dashboard/data/yuanta/stocks/{SYMBOL}.json.gz</code> quét từ 3 sàn HOSE/HNX/UPCOM (Trang 1 Tổng quan, Trang 2 Giao dịch, Trang 3 Tương quan ngành 3 khối tách BĐS khỏi Tài chính L1, Trang 4 BCTC Q1/2010–nay, Trang 5 Tin tức &amp; sự kiện). Trình duyệt chỉ đọc tệp tĩnh, không gọi API live; điểm Stock Rating được ghi rõ là dữ liệu bên thứ ba của Yuanta.</p></article>
       <article class="method-card"><h3>Missingness & verification</h3><p>Missing dataset ≠ source trả về rỗng; unknown ≠ zero. Quality status chỉ mô tả validator cấu trúc/giá trị; verification status độc lập cho biết nguồn đã hay chưa được kiểm chứng ngoài pipeline.</p></article>
     </div>
     <div class="method-callout">Không có Smart Money Score, alpha claim, ranking đầu tư hay khuyến nghị mua/bán trong dashboard này. Kiểm tra terms/rate limits của provider trước khi bật collection live.</div>`;
@@ -732,8 +942,25 @@ function renderCurrent() {
   app.innerHTML = html;
   app.setAttribute('aria-busy', 'false');
   document.getElementById('footer-generated').textContent = `Export: ${dateTimeText(data.manifest?.generated_at)} · schema ${data.manifest?.schema_version || 'unknown'}`;
+  if (view === 'stocks') {
+    const selTicker = (params.get('ticker') || '').trim().toUpperCase();
+    const stab = params.get('stab') || (data.yuantaUniverse?.status === 'available' ? 'overview' : 'funds');
+    if (selTicker && stab !== 'funds') {
+      window.__YUANTA_BUNDLES = window.__YUANTA_BUNDLES || new Map();
+      if (!window.__YUANTA_BUNDLES.has(selTicker)) {
+        window.__YUANTA_BUNDLES.set(selTicker, { status: 'loading', symbol: selTicker, bundle: null });
+        loadYuantaStockBundle(selTicker).then((entry) => {
+          window.__YUANTA_BUNDLES.set(selTicker, entry);
+          if ((queryParams().get('ticker') || '').trim().toUpperCase() === selTicker) {
+            renderCurrent();
+          }
+        });
+      }
+    }
+  }
   const selected = params.get('fund') ? document.getElementById('fund-detail') : params.get('ticker') ? document.querySelector('.stock-detail') : null;
-  selected?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+  selected?.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
 }
 
 async function bootstrap() {
@@ -741,7 +968,13 @@ async function bootstrap() {
   const alert = document.getElementById('load-alert');
   app.setAttribute('aria-busy', 'true');
   try {
-    const loaded = await loadDashboardData();
+    clearYuantaCache();
+    window.__YUANTA_BUNDLES = new Map();
+    const [loaded, yuantaUniverse] = await Promise.all([
+      loadDashboardData(),
+      loadYuantaUniverse(),
+    ]);
+    loaded.yuantaUniverse = yuantaUniverse;
     window.__VNFA_DATA = loaded;
     alert.hidden = true;
     renderCurrent();
@@ -783,6 +1016,12 @@ if (typeof document !== 'undefined') {
     if (page && !page.disabled) { updateParams({ page: page.dataset.page }); return; }
     const action = event.target.closest('[data-action]')?.dataset.action;
     if (action === 'reload') { bootstrap(); return; }
+    if (action === 'clear-incompatible-compare') {
+      const params = queryParams();
+      const cleaned = sanitizeCompareSelection(records(window.__VNFA_DATA || { datasets: {} }, 'funds'), params.get('category') || '', params.get('a') || '', params.get('b') || '');
+      updateParams(cleaned);
+      return;
+    }
     if (action === 'reset-filters') {
       const params = queryParams();
       const keep = { view: params.get('view') };
@@ -808,11 +1047,24 @@ if (typeof document !== 'undefined') {
     if (issue) { updateParams({ issue: issue.dataset.issue }, { replace: true }); }
   });
 
+  document.addEventListener('change', (event) => {
+    const compareCat = event.target.closest('#compare-category');
+    if (!compareCat || !window.__VNFA_DATA) return;
+    const form = compareCat.closest('form');
+    const currentA = form?.querySelector('[name="a"]')?.value ?? queryParams().get('a') ?? '';
+    const currentB = form?.querySelector('[name="b"]')?.value ?? queryParams().get('b') ?? '';
+    const cleaned = sanitizeCompareSelection(records(window.__VNFA_DATA, 'funds'), compareCat.value, currentA, currentB);
+    updateParams(cleaned);
+  });
+
   document.addEventListener('submit', (event) => {
     const form = event.target.closest('[data-filter-form]');
     if (!form) return;
     event.preventDefault();
     const values = Object.fromEntries(new FormData(form).entries());
+    if (currentPage() === 'compare' && window.__VNFA_DATA) {
+      Object.assign(values, sanitizeCompareSelection(records(window.__VNFA_DATA, 'funds'), values.category || '', values.a || '', values.b || ''));
+    }
     values.page = 1;
     values.sort = null;
     values.dir = null;

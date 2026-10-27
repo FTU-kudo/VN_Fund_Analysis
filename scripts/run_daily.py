@@ -22,7 +22,8 @@ from vnfa.fmarket import (ICT, FmarketClient, parse_allocation, parse_bonds, par
                           parse_fees, parse_industries, parse_performance, parse_product_row, parse_profile)
 from vnfa.notify import send_telegram  # noqa: E402
 from vnfa.pipeline import ingest_fund, recent_changes  # noqa: E402
-from vnfa.provenance import ProvenanceStore, observations_from_frame  # noqa: E402
+from vnfa.provenance import (ProvenanceStore, make_nav_history_summary_observation,  # noqa: E402
+                             observations_from_frame)
 from vnfa.quality import (require_valid, validate_allocation, validate_bond_holdings,  # noqa: E402
                           validate_fund_universe, validate_holdings, validate_nav)
 from vnfa.report import render_report, render_text  # noqa: E402
@@ -35,6 +36,15 @@ def _response_observed_at(client) -> str | None:
     """Use the actual response receipt time; fake clients have no source timestamp."""
     event = getattr(client, "last_source_event", None)
     return event.get("observed_at") if event else None
+
+
+def _call_client_fund(fn, *args, fund_code: str | None = None):
+    try:
+        return fn(*args, fund_code=fund_code)
+    except TypeError as exc:
+        if "fund_code" in str(exc):
+            return fn(*args)
+        raise
 
 
 def _record_quality(report, reports: list[dict], *, fund: str | None = None, source: str = "fmarket") -> list[str]:
@@ -94,7 +104,7 @@ def run(cfg: dict, client, store: Store, observed_date: str, limit: int | None =
     for f in funds:
         did_ingest = False
         try:
-            detail = client.product_detail(f["id"])
+            detail = _call_client_fund(client.product_detail, f["id"], fund_code=f.get("code"))
             fund_observed_at = _response_observed_at(client)
             if not isinstance(detail, dict):
                 raise ValueError("Chi tiết quỹ không phải JSON object")
@@ -148,6 +158,7 @@ def run(cfg: dict, client, store: Store, observed_date: str, limit: int | None =
                 provenance_observations.extend(observations_from_frame(
                     holdings, dataset="fund_holdings", fund=code, source="fmarket",
                     source_reference=source_reference, observed_at=fund_observed_at,
+                    observed_date=observed_date, observed_date_basis="response_observed_at",
                     key_columns=("ticker",), effective_date_column="update_date", run_id=run_id,
                     data_quality_status=holding_quality.status,
                     verification_status="provider_returned_unverified", quality_flags=holding_flags,
@@ -157,6 +168,7 @@ def run(cfg: dict, client, store: Store, observed_date: str, limit: int | None =
                     provenance_observations.extend(observations_from_frame(
                         parsed_bonds, dataset="fund_bond_holdings", fund=code, source="fmarket",
                         source_reference=source_reference, observed_at=fund_observed_at,
+                        observed_date=observed_date, observed_date_basis="response_observed_at",
                         key_columns=("ticker",), effective_date_column="update_date", run_id=run_id,
                         data_quality_status=bond_quality.status,
                         verification_status="provider_returned_unverified",
@@ -178,6 +190,7 @@ def run(cfg: dict, client, store: Store, observed_date: str, limit: int | None =
                     provenance_observations.extend(observations_from_frame(
                         frame, dataset=f"fund_{dataset_name}", fund=code, source="fmarket",
                         source_reference=source_reference, observed_at=fund_observed_at,
+                        observed_date=observed_date, observed_date_basis="response_observed_at",
                         key_columns=key_columns, effective_date_column=effective_column, run_id=run_id,
                         data_quality_status=quality_status,
                         verification_status="provider_returned_unverified", quality_flags=quality_codes,
@@ -200,6 +213,7 @@ def run(cfg: dict, client, store: Store, observed_date: str, limit: int | None =
                     pd.DataFrame([{"date": observed_date, "nav": nav_value}]),
                     dataset="nav_snapshot", fund=code, source="fmarket",
                     source_reference=f"/products/{f['id']}", observed_at=fund_observed_at,
+                    observed_date=observed_date, observed_date_basis="response_observed_at",
                     key_columns=("date",), run_id=run_id, data_quality_status="valid",
                     verification_status="provider_returned_unverified",
                     quality_flags=["effective_date_unknown"], coverage_type="daily_snapshot",
@@ -237,7 +251,7 @@ def run(cfg: dict, client, store: Store, observed_date: str, limit: int | None =
                 # NAV history là dữ liệu bổ sung; lỗi endpoint này không được biến một
                 # lần lấy holdings thành thất bại sau khi snapshot đã ghi.
                 try:
-                    nav_frame = client.nav_history(f["id"])
+                    nav_frame = _call_client_fund(client.nav_history, f["id"], fund_code=code)
                     nav_quality = validate_nav(nav_frame.assign(fund=code))
                     nav_flags = _record_quality(nav_quality, quality_reports, fund=code)
                     require_valid(nav_quality)
@@ -245,14 +259,15 @@ def run(cfg: dict, client, store: Store, observed_date: str, limit: int | None =
                     info["n_nav_funds"] += 1
                     nav_observed_at = _response_observed_at(client)
                     if nav_observed_at:
-                        provenance_observations.extend(observations_from_frame(
-                            nav_frame, dataset="nav_history", fund=code, source="fmarket",
+                        summary_obs = make_nav_history_summary_observation(
+                            nav_frame, fund=code, source="fmarket",
                             source_reference="/product/get-nav-history", observed_at=nav_observed_at,
-                            key_columns=("date",), effective_date_column="date", run_id=run_id,
-                            data_quality_status=nav_quality.status,
+                            run_id=run_id, data_quality_status=nav_quality.status,
                             verification_status="provider_returned_unverified", quality_flags=nav_flags,
-                            coverage_type="history_endpoint",
-                        ))
+                            coverage_type="history_endpoint_summary",
+                        )
+                        if summary_obs is not None:
+                            provenance_observations.append(summary_obs)
                 except Exception as e:
                     info["n_nav_history_failed"] += 1
                     log.warning("%s: tải NAV history lỗi (%s: %s)", code, type(e).__name__, e)
@@ -280,7 +295,12 @@ def run(cfg: dict, client, store: Store, observed_date: str, limit: int | None =
         prior_today = prior_changes[prior_changes.observed_date.astype(str) == observed_date]
         if not prior_today.empty:
             changes = pd.concat([prior_today, changes], ignore_index=True)
-            changes = changes.drop_duplicates(["observed_date", "fund", "ticker"], keep="last")
+            if "asset_class" in changes.columns:
+                changes["_ac_key"] = changes["asset_class"].fillna("STOCK").astype(str)
+                changes = changes.drop_duplicates(["observed_date", "fund", "_ac_key", "ticker"], keep="last")
+                changes = changes.drop(columns=["_ac_key"])
+            else:
+                changes = changes.drop_duplicates(["observed_date", "fund", "ticker"], keep="last")
     ca = cfg["corporate_action"]
     stock = changes[changes.asset_class != "BOND"] if not changes.empty else changes
     bonds = changes[changes.asset_class == "BOND"] if not changes.empty else changes

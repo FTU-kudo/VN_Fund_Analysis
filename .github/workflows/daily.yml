@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       limit:
-        description: "Chỉ chạy N quỹ đầu tiên (gỡ lỗi, để trống = tất cả)"
+        description: "Chỉ chạy N quỹ đầu tiên (số nguyên dương, để trống = tất cả)"
         required: false
         default: ""
       dry_run:
@@ -15,7 +15,7 @@ on:
         default: false
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: daily-fund-check
@@ -25,42 +25,113 @@ jobs:
   run:
     runs-on: ubuntu-latest
     timeout-minutes: 40   # 69 quỹ x (chi tiết + NAV), mỗi request cách nhau ~1 giây
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
           cache: pip
 
-      - name: Install
-        run: pip install -r requirements.txt
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
 
-      - name: Unit tests
-        run: pytest -q
+      - name: Run offline unit tests
+        run: python -m pytest -q
 
       - name: Check holdings
+        id: collector
+        continue-on-error: true
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           LIMIT: ${{ inputs.limit }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          args=""
-          if [ -n "$LIMIT" ]; then args="$args --limit $LIMIT"; fi
-          if [ "$DRY_RUN" = "true" ]; then args="$args --dry-run"; fi
-          python scripts/run_daily.py $args
+          set -euo pipefail
+          args=()
+          if [ -n "${LIMIT:-}" ]; then
+            if [[ ! "$LIMIT" =~ ^[1-9][0-9]*$ ]]; then
+              echo "::error::Invalid limit input: must be a positive integer."
+              echo "exit_code=2" >> "$GITHUB_OUTPUT"
+              exit 2
+            fi
+            args+=("--limit" "$LIMIT")
+          fi
+          if [ "${DRY_RUN:-false}" = "true" ]; then
+            args+=("--dry-run")
+          fi
+          set +e
+          python scripts/run_daily.py "${args[@]}"
+          rc=$?
+          set -e
+          echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+          exit "$rc"
+
+      - name: Check data archive size budget
+        id: budget
+        if: always()
+        continue-on-error: true
+        run: |
+          set +e
+          out="$(python scripts/check_data_budget.py --data-dir data)"
+          rc=$?
+          set -e
+          printf '%s\n' "$out"
+          bstatus="$(STATUS_JSON="$out" python -c 'import json, os; print(json.loads(os.environ["STATUS_JSON"]).get("status", "unknown"))' 2>/dev/null || echo unknown)"
+          echo "status=$bstatus" >> "$GITHUB_OUTPUT"
+          echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+          exit "$rc"
+
+      - name: Record sanitized workflow status
+        if: always() && inputs.dry_run != true
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          COLLECTOR_OUTCOME: ${{ steps.collector.outcome }}
+          COLLECTOR_EXIT: ${{ steps.collector.outputs.exit_code }}
+          BUDGET_STATUS: ${{ steps.budget.outputs.status }}
+        run: |
+          conclusion="failure"
+          if [ "$COLLECTOR_OUTCOME" = "success" ] && [ "${BUDGET_STATUS:-unknown}" != "fail" ]; then
+            conclusion="success"
+          fi
+          args=(
+            "--out" "data/workflow_status.json"
+            "--workflow" "daily"
+            "--conclusion" "$conclusion"
+            "--trigger" "${EVENT_NAME:-unknown}"
+            "--budget-status" "${BUDGET_STATUS:-unknown}"
+          )
+          if [[ "${COLLECTOR_EXIT:-}" =~ ^[0-9]+$ ]]; then
+            args+=("--collector-exit-code" "$COLLECTOR_EXIT")
+          fi
+          python scripts/write_workflow_status.py "${args[@]}"
 
       - name: Commit data
-        if: ${{ inputs.dry_run != true }}
+        if: always() && inputs.dry_run != true && github.ref == 'refs/heads/main'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data reports
+          [ -d data ] && git add data
+          [ -d reports ] && git add reports || true
           if git diff --staged --quiet; then
             echo "Không có thay đổi để commit."
           else
             git commit -m "data: fund holdings $(date -u +%Y-%m-%d)"
             git pull --rebase --autostash
             git push
+          fi
+
+      - name: Propagate collector or budget failure
+        if: always()
+        env:
+          COLLECTOR_OUTCOME: ${{ steps.collector.outcome }}
+          BUDGET_OUTCOME: ${{ steps.budget.outcome }}
+        run: |
+          if [ "$COLLECTOR_OUTCOME" != "success" ] || [ "$BUDGET_OUTCOME" != "success" ]; then
+            exit 1
           fi

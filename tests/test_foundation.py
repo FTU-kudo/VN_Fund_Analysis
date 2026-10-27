@@ -539,3 +539,233 @@ def test_data_inventory_uses_only_present_files_and_reports_real_coverage(tmp_pa
     text = render_inventory_markdown(inventory)
     assert "top_n_partial_censored" not in text  # machine-readable qualification stays in JSON
     assert "schema_mismatch" in text
+
+
+def test_compact_provenance_reconciles_nav_series_and_enforces_90d_budget(tmp_path):
+    import importlib.util
+    import pytest
+    from vnfa.provenance import observations_from_frame
+
+    spec_c = importlib.util.spec_from_file_location("compact_provenance", "scripts/compact_provenance.py")
+    cp = importlib.util.module_from_spec(spec_c)
+    spec_c.loader.exec_module(cp)
+
+    spec_b = importlib.util.spec_from_file_location("check_data_budget", "scripts/check_data_budget.py")
+    cb = importlib.util.module_from_spec(spec_b)
+    spec_b.loader.exec_module(cb)
+
+    data = tmp_path / "data"
+    data.mkdir()
+    nav_df = pd.DataFrame([
+        {"fund": "F1", "date": f"2026-09-{d:02d}", "nav": 10000.0 + d * 10}
+        for d in range(1, 21)
+    ])
+    nav_df.to_csv(data / "nav.csv", sep=";", index=False)
+
+    pstore = ProvenanceStore(data)
+    hold_obs = make_observation(
+        dataset="fund_holdings", fund="F1", record_key="AAA", payload={"weight": 0.1},
+        source="fmarket", source_reference="/products/1", effective_date="2026-09-20",
+        observed_at="2026-09-21T06:00:00Z", observed_date="2026-09-21",
+        observed_date_basis="response_observed_at", data_quality_status="partial",
+    )
+    point_nav_obs = observations_from_frame(
+        nav_df[["date", "nav"]], dataset="nav_history", fund="F1", source="fmarket",
+        source_reference="/product/get-nav-history", observed_at="2026-09-21T06:00:01Z",
+        key_columns=("date",), effective_date_column="date", run_id="run-1",
+        data_quality_status="valid", verification_status="provider_returned_unverified",
+        coverage_type="history_endpoint",
+    )
+    pstore.append_observations([hold_obs, *point_nav_obs], run_id="run-1")
+
+    # Point-level nav_history triggers budget failure until compacted.
+    pre_budget = cb.evaluate_data_budget(data)
+    assert pre_budget["status"] == "fail" and pre_budget["point_level_nav_observations"] == 20
+
+    # Refuses backup directory inside Git repository.
+    with pytest.raises(ValueError, match="Git repository"):
+        cp.compact_observations(data, backup_dir=cp.ROOT / "tmp_forbidden_backup", dry_run=False)
+
+    # Dry-run leaves file untouched.
+    before_bytes = (data / "research_observations.csv").read_bytes()
+    dry = cp.compact_observations(data, dry_run=True)
+    assert dry["dry_run"] is True and dry["nav_point_rows_compacted"] == 20 and dry["after_rows"] == 2
+    assert (data / "research_observations.csv").read_bytes() == before_bytes
+
+    # Live migration writes verified backup + compacts 20 rows -> 1 summary row, preserving fund_holdings verbatim.
+    bdir = tmp_path / "backup_outside_repo"
+    res1 = cp.compact_observations(data, backup_dir=bdir, dry_run=False)
+    assert res1["after_rows"] == 2 and res1["nav_points_accounted_for"] == 20
+    assert (bdir / "research_observations.csv.bak").read_bytes() == before_bytes
+
+    # Pass 2 is 100% idempotent.
+    res2 = cp.compact_observations(data, backup_dir=bdir, dry_run=False)
+    assert res2["already_compact"] is True and res2["after_sha256"] == res1["after_sha256"]
+    assert select_as_of(ProvenanceStore(data, write=False).read_observations(), "2026-09-22").shape[0] == 2
+
+    # Repository's real data/ directory passes 90-day budget cleanly (< 25 MB warn, 0 point-level nav obs).
+    repo_budget = cb.evaluate_data_budget("data", warn_mb=25.0, fail_mb=80.0, horizon_days=90)
+    assert repo_budget["status"] == "ok"
+    assert repo_budget["point_level_nav_observations"] == 0
+    assert repo_budget["projected_total_mb"] < 25.0
+
+
+def test_run_daily_records_observed_date_and_nav_history_summary(tmp_path):
+    import importlib.util
+    from vnfa.config import load_config
+    from vnfa.store import Store
+
+    spec = importlib.util.spec_from_file_location("run_daily_prov", "scripts/run_daily.py")
+    rd = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rd)
+
+    class FakeLiveClient:
+        run_id = "run-live-1"
+        last_source_event = {"observed_at": "2026-10-27T06:35:00Z"}
+
+        def list_products(self):
+            return [{"id": 1, "code": "F1", "shortName": "F1", "owner": {"shortName": "CO"},
+                     "dataFundAssetType": {"code": "STOCK"}}]
+
+        def product_detail(self, _):
+            return {"id": 1, "code": "F1", "nav": 12345.0, "owner": {"shortName": "CO"},
+                    "assetType": {"code": "STOCK"},
+                    "topHoldings": [{"stockCode": "AAA", "netAssetPercent": 6.0, "price": 10,
+                                     "volume": 1000, "assetValue": 10_000_000, "type": "STOCK"}]}
+
+        def nav_history(self, _):
+            return pd.DataFrame([
+                {"date": f"2026-10-{d:02d}", "nav": 12000.0 + d}
+                for d in range(1, 16)
+            ])
+
+    cfg = load_config(None)
+    store = Store(tmp_path)
+    info, _ = rd.run(cfg, FakeLiveClient(), store, "2026-10-27")
+    assert info["n_nav_funds"] == 1
+    obs = ProvenanceStore(tmp_path, write=False).read_observations()
+    nav_hist = obs[obs.dataset == "nav_history"]
+    assert len(nav_hist) == 1  # 15 NAV history rows summarized into 1 provenance row!
+    assert str(nav_hist.iloc[0].record_key).startswith("summary:")
+    hold_obs = obs[obs.dataset == "fund_holdings"]
+    assert hold_obs.iloc[0].observed_date == "2026-10-27"
+    assert hold_obs.iloc[0].observed_date_basis == "response_observed_at"
+
+
+def test_freshness_sla_states_bond_price_noise_and_source_runs_migration(tmp_path, monkeypatch):
+    import importlib.util
+
+    spec_m = importlib.util.spec_from_file_location("migrate_source_runs", "scripts/migrate_source_runs.py")
+    ms = importlib.util.module_from_spec(spec_m)
+    spec_m.loader.exec_module(ms)
+
+    data = tmp_path / "data"
+    (data / "holdings").mkdir(parents=True)
+    (data / "bonds").mkdir(parents=True)
+    pd.DataFrame([{"observed_date": "2026-10-27", "fund": "F1", "ticker": "AAA",
+                   "weight": 0.1, "volume": 100, "price_k": 10, "asset_value": 1000000,
+                   "update_date": "2026-10-15", "content_hash": "h1"}]).to_csv(
+        data / "holdings" / "F1.csv", sep=";", index=False)
+    # Bond holdings structurally lack price_k in Fmarket; must NOT emit missing_price_k anomaly warning!
+    pd.DataFrame([{"observed_date": "2026-10-27", "fund": "F1", "ticker": "BD1",
+                   "weight": 0.1, "volume": 50, "price_k": np.nan, "asset_value": 500000,
+                   "update_date": "2026-10-15", "content_hash": "b1"}]).to_csv(
+        data / "bonds" / "F1.csv", sep=";", index=False)
+    # Stale allocation (report_date 60 days old > 45d SLA)
+    pd.DataFrame([{"observed_date": "2026-10-27", "fund": "F1", "asset_code": "STOCK",
+                   "pct": 0.8, "report_date": "2026-08-25", "content_hash": "a1"}]).to_csv(
+        data / "allocation.csv", sep=";", index=False)
+    # Empty fees dataset (header only) and schema_mismatch nav_snapshots
+    pd.DataFrame(columns=["observed_date", "fund", "type", "fee", "content_hash"]).to_csv(
+        data / "fees.csv", sep=";", index=False)
+    pd.DataFrame([{"fund": "F1", "wrong_col": 1}]).to_csv(data / "nav_snapshots.csv", sep=";", index=False)
+
+    # Without SLA configured -> not_assessed_no_sla
+    inv_no_sla = build_data_inventory(data, reference_date="2026-10-27")
+    assert inv_no_sla["datasets"]["allocation"]["freshness"]["assessment"] == "not_assessed_no_sla"
+    bond_q = inv_no_sla["datasets"]["fund_bond_holdings"]["quality"]
+    assert bond_q["anomaly_warnings"] == []
+    assert [w["code"] for w in bond_q["structural_warnings"]] == ["censored_top_n"]
+
+    # With SLA configured -> separates within_sla, stale, empty_dataset, schema_mismatch, unavailable_missing!
+    sla = {"fund_holdings": 45, "allocation": 45, "fees": 180, "nav_snapshots": 3, "full_holdings": 45}
+    inv_sla = build_data_inventory(data, reference_date="2026-10-27", freshness_sla=sla)
+    assert inv_sla["datasets"]["fund_holdings"]["freshness"]["assessment"] == "within_sla"
+    assert inv_sla["datasets"]["allocation"]["freshness"]["assessment"] == "stale"
+    assert inv_sla["datasets"]["fees"]["freshness"]["assessment"] == "empty_dataset"
+    assert inv_sla["datasets"]["nav_snapshots"]["freshness"]["assessment"] == "schema_mismatch"
+    assert inv_sla["datasets"]["full_holdings"]["freshness"]["assessment"] == "unavailable_missing"
+    assert inv_sla["datasets"]["industry"]["freshness"]["assessment"] == "not_assessed_no_sla"
+
+    # Migrate v1 source_runs.csv -> v2 preserving unknown fund_code, then append new v2 event with fund_code.
+    from vnfa.provenance import SOURCE_COLUMNS_V1
+    v1_row = {col: "" for col in SOURCE_COLUMNS_V1}
+    v1_row.update({"event_id": "legacy-evt-1", "provider": "fmarket", "endpoint": "GET /products/1",
+                   "status": "success", "http_status": "200"})
+    pd.DataFrame([v1_row], columns=SOURCE_COLUMNS_V1).to_csv(data / "source_runs.csv", sep=";", index=False)
+    assert ProvenanceStore(data, write=False).read_source_events()["fund_code"].isna().all()
+    dry = ms.migrate_source_runs(data, dry_run=True)
+    assert dry["dry_run"] is True and dry["already_v2"] is False
+    mig = ms.migrate_source_runs(data, backup_dir=tmp_path / "sr_bak", dry_run=False)
+    assert mig["already_v2"] is False and mig["rows"] == 1
+    assert ms.migrate_source_runs(data, backup_dir=tmp_path / "sr_bak", dry_run=False)["already_v2"] is True
+
+    client = FmarketClient(delay=0, run_id="run-v2")
+    resp = type("Resp", (), {
+        "status_code": 200, "content": b'{"status":200,"data":{"id":7,"code":"DCDS"}}',
+        "raw": None, "raise_for_status": lambda self=None: None,
+        "json": lambda self=None: {"status": 200, "data": {"id": 7, "code": "DCDS"}},
+    })()
+    monkeypatch.setattr(client.session, "request", lambda *_a, **_kw: resp)
+    client.product_detail(7, fund_code="DCDS")
+    assert client.last_source_event["fund_code"] == "DCDS"
+    assert ProvenanceStore(data).append_source_events(client.source_events, run_id="run-v2") == 1
+    events_df = ProvenanceStore(data, write=False).read_source_events()
+    assert len(events_df) == 2
+    assert pd.isna(events_df.iloc[0]["fund_code"])  # historical row kept unknown!
+    assert events_df.iloc[1]["fund_code"] == "DCDS"
+
+
+def test_report_and_notify_render_safely_without_leaking_tokens(monkeypatch, caplog):
+    import requests
+    from vnfa.config import load_config
+    from vnfa.notify import send_telegram
+    from vnfa.report import render_report, render_text
+
+    cfg = load_config(None)
+    changes = pd.DataFrame([
+        {"observed_date": "2026-10-27", "fund": "F1", "mgmt_co": "CO", "ticker": "FPT",
+         "action": "BUY", "basis": "volume", "w_prev": 0.05, "w_new": 0.07, "w_delta": 0.02,
+         "vol_prev": 1000, "vol_new": 1300, "vol_pct": 0.30, "vol_rel": 0.30, "vol_scale": 0.0,
+         "est_value_vnd": 3e9, "censored": False, "flag": "FUND_SCALE_MEDIAN_PROXY", "asset_class": "STOCK"},
+        {"observed_date": "2026-10-27", "fund": "F2", "mgmt_co": "CO2", "ticker": "HPG",
+         "action": "SELL", "basis": "volume", "w_prev": 0.08, "w_new": 0.05, "w_delta": -0.03,
+         "vol_prev": 2000, "vol_new": 1200, "vol_pct": -0.40, "vol_rel": -0.40, "vol_scale": 0.0,
+         "est_value_vnd": -2e9, "censored": False, "flag": "FUND_SCALE_MEDIAN_PROXY", "asset_class": "STOCK"},
+        {"observed_date": "2026-10-27", "fund": "F3", "mgmt_co": "CO3", "ticker": "MBB",
+         "action": "WEIGHT_CHANGE?", "basis": "weight", "w_prev": 0.04, "w_new": 0.06, "w_delta": 0.02,
+         "vol_prev": np.nan, "vol_new": np.nan, "vol_pct": np.nan, "vol_rel": np.nan, "vol_scale": np.nan,
+         "est_value_vnd": np.nan, "censored": False, "flag": "WEIGHT_ONLY_UNCONFIRMED", "asset_class": "STOCK"},
+    ])
+    info = {
+        "n_ok": 3, "n_total": 3, "n_failed": 0, "n_partial": 0, "n_changed": 3, "n_baseline": 0,
+        "n_empty_holdings": 1, "n_nav_invalid": 1, "n_nav_history_failed": 0,
+        "n_quality_reports": 3, "n_quality_errors": 0, "n_quality_warnings": 4, "n_quality_rejected": 0,
+        "n_provenance_observations": 10, "n_source_events": 4, "empty_tables": {"fees": 1}, "failed": ["F9"],
+    }
+    md = render_report("2026-10-27", changes, info, cfg)
+    assert "Tăng vị thế ròng ước tính" in md and "Giảm vị thế ròng ước tính" in md
+    assert "Thay đổi chưa xác nhận" in md and "Watchlist" in md
+    txt = render_text("2026-10-27", changes, info, cfg)
+    assert "FPT +3.0tỷ" in txt and "HPG -2.0tỷ" in txt
+    assert "Không có thay đổi" in render_text("2026-10-27", changes.iloc[0:0], info, cfg)
+
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
+    assert send_telegram("hi") is False
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "SUPER_SECRET_BOT_TOKEN_123")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "99999")
+    monkeypatch.setattr(requests, "post", lambda *_a, **_kw: (_ for _ in ()).throw(requests.ConnectionError("boom")))
+    assert send_telegram("hi") is False
+    assert "SUPER_SECRET_BOT_TOKEN_123" not in caplog.text

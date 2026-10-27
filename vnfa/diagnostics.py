@@ -47,6 +47,15 @@ def classify_exception(exc: BaseException) -> tuple[str, int | None]:
     return "error", None
 
 
+def _call_with_fund_code(fn, *args, fund_code: str | None = None):
+    try:
+        return fn(*args, fund_code=fund_code)
+    except TypeError as exc:
+        if "fund_code" in str(exc):
+            return fn(*args)
+        raise
+
+
 def _last_event_status(client: FmarketClient, fallback: str) -> str:
     event = getattr(client, "last_source_event", None)
     return str(event.get("status")) if event and event.get("status") else fallback
@@ -109,7 +118,7 @@ def probe_sources(client: FmarketClient | None = None, *, include_nav: bool = Tr
             results.append(_probe_result("POST /product/get-nav-history", "not_run", note=reason))
     else:
         try:
-            detail = client.product_detail(product_id)
+            detail = _call_with_fund_code(client.product_detail, product_id, fund_code=fund_code)
             status = _last_event_status(client, "success")
             has_stock_holdings = any(key in detail for key in ("productTopHoldingList", "topHoldings"))
             if product_asset_code in {"STOCK", "BALANCED"} and not has_stock_holdings:
@@ -134,7 +143,7 @@ def probe_sources(client: FmarketClient | None = None, *, include_nav: bool = Tr
                                              fund=fund_code, note="not run because product detail failed"))
             else:
                 try:
-                    history = client.nav_history(product_id)
+                    history = _call_with_fund_code(client.nav_history, product_id, fund_code=fund_code)
                     status = _last_event_status(client, "success")
                     if history.empty:
                         status = "empty_response"
