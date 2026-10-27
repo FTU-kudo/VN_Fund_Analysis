@@ -1,0 +1,66 @@
+name: Daily fund holdings check (all funds)
+
+on:
+  schedule:
+    - cron: "30 1 * * *"          # 01:30 UTC = 08:30 giờ Việt Nam, hằng ngày
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Chỉ chạy N quỹ đầu tiên (gỡ lỗi, để trống = tất cả)"
+        required: false
+        default: ""
+      dry_run:
+        description: "Chạy thử, không ghi file"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-fund-check
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40   # 69 quỹ x (chi tiết + NAV), mỗi request cách nhau ~1 giây
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -r requirements.txt
+
+      - name: Unit tests
+        run: pytest -q
+
+      - name: Check holdings
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          LIMIT: ${{ inputs.limit }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          args=""
+          if [ -n "$LIMIT" ]; then args="$args --limit $LIMIT"; fi
+          if [ "$DRY_RUN" = "true" ]; then args="$args --dry-run"; fi
+          python scripts/run_daily.py $args
+
+      - name: Commit data
+        if: ${{ inputs.dry_run != true }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data reports
+          if git diff --staged --quiet; then
+            echo "Không có thay đổi để commit."
+          else
+            git commit -m "data: fund holdings $(date -u +%Y-%m-%d)"
+            git pull --rebase --autostash
+            git push
+          fi
