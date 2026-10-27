@@ -300,7 +300,14 @@ def parse_detail(d: dict) -> tuple[dict, pd.DataFrame]:
 
 # ───────────────────────── Các bảng bổ sung (mọi loại quỹ) ─────────────────────────
 def _ms_to_date(ms) -> str | None:
-    return datetime.fromtimestamp(ms / 1000, tz=ICT).date().isoformat() if ms else None
+    if ms is None or ms == "":
+        return None
+    if isinstance(ms, (int, float)) and not isinstance(ms, bool):
+        if not np.isfinite(ms) or ms <= 0:
+            return None
+        return datetime.fromtimestamp(ms / 1000, tz=ICT).date().isoformat()
+    parsed = pd.to_datetime(str(ms).strip()[:10], errors="coerce")
+    return None if pd.isna(parsed) else parsed.date().isoformat()
 
 
 def parse_nav_history(data) -> pd.DataFrame:
@@ -321,6 +328,11 @@ def parse_nav_history(data) -> pd.DataFrame:
     return df.drop_duplicates("date", keep="last").sort_values("date").reset_index(drop=True)
 
 
+def _pct_fraction(x) -> float:
+    value = _num(x)
+    return round(value / 100.0, 6) if np.isfinite(value) else np.nan
+
+
 def parse_allocation(d: dict) -> pd.DataFrame:
     """Cơ cấu tài sản (cổ phiếu/trái phiếu/tiền...) theo kỳ báo cáo."""
     rows = []
@@ -328,7 +340,7 @@ def parse_allocation(d: dict) -> pd.DataFrame:
               else d.get("assetAllocation")) or []:
         t = a.get("assetType") or {}
         rows.append({"asset_code": t.get("code"), "asset_name": t.get("name"),
-                     "pct": _num(a.get("assetPercent")) / 100.0, "report_date": _ms_to_date(a.get("reportTime"))})
+                     "pct": _pct_fraction(a.get("assetPercent")), "report_date": _ms_to_date(a.get("reportTime"))})
     return pd.DataFrame(rows, columns=["asset_code", "asset_name", "pct", "report_date"])
 
 
@@ -336,7 +348,7 @@ def parse_industries(d: dict) -> pd.DataFrame:
     rows = []
     for a in (d.get("productIndustriesHoldingList") if d.get("productIndustriesHoldingList") is not None
               else d.get("industries")) or []:
-        rows.append({"industry": a.get("industry"), "pct": _num(a.get("assetPercent")) / 100.0})
+        rows.append({"industry": a.get("industry"), "pct": _pct_fraction(a.get("assetPercent"))})
     return pd.DataFrame(rows, columns=["industry", "pct"])
 
 

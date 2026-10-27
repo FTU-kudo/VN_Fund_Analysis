@@ -279,3 +279,154 @@ def test_later_supplementary_error_does_not_lose_holdings_change(tmp_path, monke
     assert info["n_failed"] == 1 and info["n_partial"] == 1
     assert changes.iloc[0].action == "UNCONFIRMED?"
     assert len(store.read_changes()) == 1
+
+
+def test_diff_row_permutation_invariance():
+    prev = H([("AAA", .12, 1000, 20, 20e6), ("BBB", .10, 2000, 15, 30e6), ("CCC", .08, 500, 10, 5e6),
+              ("DDD", .07, 800, 12, 9.6e6), ("EEE", .05, 400, 8, 3.2e6), ("OLD", .04, 300, 9, 2.7e6)])
+    new = H([("AAA", .14, 1300, 20, 26e6), ("BBB", .08, 1500, 15, 22.5e6), ("CCC", .08, 505, 10, 5.05e6),
+             ("DDD", .07, 800, 12, 9.6e6), ("EEE", .05, 404, 8, 3.232e6), ("NEW", .04, 250, 11, 2.75e6)])
+    baseline = diff_holdings(prev, new, 0.05, 0.005).reset_index(drop=True)
+    for seed in (1, 7, 42, 99):
+        perm_prev = prev.sample(frac=1.0, random_state=seed).reset_index(drop=True)
+        perm_new = new.sample(frac=1.0, random_state=seed + 100).reset_index(drop=True)
+        permuted = diff_holdings(perm_prev, perm_new, 0.05, 0.005).reset_index(drop=True)
+        pd.testing.assert_frame_equal(baseline, permuted)
+
+
+def test_doubling_all_volumes_emits_only_prorata_zero_active_flow():
+    prev = H([("AAA", .10, 1000, 10, 10e6), ("BBB", .09, 2000, 12, 24e6),
+              ("CCC", .08, 1500, 8, 12e6), ("DDD", .07, 500, 25, 12.5e6)])
+    new = H([("AAA", .10, 2000, 10, 20e6), ("BBB", .09, 4000, 12, 48e6),
+             ("CCC", .08, 3000, 8, 24e6), ("DDD", .07, 1000, 25, 25e6)])
+    ch = diff_holdings(prev, new, 0.05, 0.005)
+    assert set(ch.action) == {"PRORATA"}
+    assert np.allclose(ch.vol_scale, 1.0)
+    assert np.allclose(ch.vol_rel, 0.0)
+    flow = market_flow(ch.assign(fund="F1"))
+    assert flow.n_buy.sum() == 0 and flow.n_sell.sum() == 0
+    assert flow.net_value_bn.isna().all()
+
+
+def test_zero_and_negative_volumes_are_unconfirmed_not_liquidations():
+    prev = H([("AAA", .10, 1000, 10, 10e6), ("BBB", .09, 1000, 10, 10e6),
+              ("CCC", .08, 1000, 10, 10e6), ("DDD", .07, 1000, 10, 10e6),
+              ("ZERO", .06, 1000, 10, 10e6), ("NEG", .05, -50, 10, np.nan)])
+    new = H([("AAA", .10, 1000, 10, 10e6), ("BBB", .09, 1000, 10, 10e6),
+             ("CCC", .08, 1000, 10, 10e6), ("DDD", .07, 1000, 10, 10e6),
+             ("ZERO", .06, 0, 10, 0), ("NEG", .05, 500, 10, 5e6)])
+    ch = diff_holdings(prev, new, 0.05, 0.005).set_index("ticker")
+    assert ch.loc["ZERO", "action"] == "UNCONFIRMED?"
+    assert ch.loc["ZERO", "flag"] == "NONPOSITIVE_VOLUME_UNCONFIRMED"
+    assert pd.isna(ch.loc["ZERO", "est_value_vnd"])
+    assert ch.loc["NEG", "action"] == "UNCONFIRMED?"
+    assert ch.loc["NEG", "flag"] == "NONPOSITIVE_VOLUME_UNCONFIRMED"
+    flow = market_flow(ch.reset_index().assign(fund="F1"))
+    assert flow.n_sell.sum() == 0 and flow.n_buy.sum() == 0
+
+
+def test_duplicate_tickers_exact_and_conflicting_are_permutation_invariant():
+    # Exact duplicate row in prev collapses cleanly; conflicting duplicate in new becomes UNCONFIRMED?.
+    prev = H([("AAA", .10, 1000, 10, 10e6), ("AAA", .10, 1000, 10, 10e6),
+              ("BBB", .09, 1000, 10, 10e6), ("CCC", .08, 1000, 10, 10e6),
+              ("DDD", .07, 1000, 10, 10e6), ("DUP", .06, 1000, 10, 10e6)])
+    new_a = H([("AAA", .12, 1300, 10, 13e6), ("BBB", .09, 1000, 10, 10e6),
+               ("CCC", .08, 1000, 10, 10e6), ("DDD", .07, 1000, 10, 10e6),
+               ("DUP", .04, 700, 10, 7e6), ("DUP", .03, 500, 10, 5e6)])
+    new_b = new_a.iloc[::-1].reset_index(drop=True)
+    ch_a = diff_holdings(prev, new_a, 0.05, 0.005).reset_index(drop=True)
+    ch_b = diff_holdings(prev.iloc[::-1].reset_index(drop=True), new_b, 0.05, 0.005).reset_index(drop=True)
+    pd.testing.assert_frame_equal(ch_a, ch_b)
+    by_ticker = ch_a.set_index("ticker")
+    assert by_ticker.loc["AAA", "action"] == "BUY"
+    assert by_ticker.loc["DUP", "action"] == "UNCONFIRMED?"
+    assert by_ticker.loc["DUP", "flag"] == "DUPLICATE_TICKER_AMBIGUOUS"
+    assert pd.isna(by_ticker.loc["DUP", "est_value_vnd"])
+
+
+def test_renamed_ticker_empty_snapshots_missing_prices_and_signed_flow():
+    # Ticker rename (OLD -> NEW) is censored exit/entry, never inferred active BUY/SELL.
+    prev = H([("AAA", .10, 1000, np.nan, np.nan), ("BBB", .10, 1000, 10, 10e6),
+              ("CCC", .08, 1000, 10, 10e6), ("DDD", .07, 1000, 10, 10e6), ("OLD", .05, 500, 10, 5e6)])
+    new = H([("AAA", .12, 1300, np.nan, np.nan), ("BBB", .08, 700, 10, 7e6),
+             ("CCC", .08, 1000, 10, 10e6), ("DDD", .07, 1000, 10, 10e6), ("NEW", .05, 500, 10, 5e6)])
+    ch = diff_holdings(prev, new, 0.05, 0.005).set_index("ticker")
+    assert ch.loc["OLD", "action"] == "EXIT_TOP10" and ch.loc["OLD", "censored"]
+    assert ch.loc["NEW", "action"] == "NEW_IN_TOP10" and ch.loc["NEW", "censored"]
+    assert ch.loc["AAA", "action"] == "BUY" and pd.isna(ch.loc["AAA", "est_value_vnd"])
+    assert ch.loc["BBB", "action"] == "SELL" and np.isclose(ch.loc["BBB", "est_value_vnd"], -300 * 10_000)
+
+    # New fund (empty prev) and closed/liquidated top-10 (empty new)
+    empty = H([])
+    assert set(diff_holdings(empty, new).action) == {"NEW_IN_TOP10"}
+    assert set(diff_holdings(prev, empty).action) == {"EXIT_TOP10"}
+
+    # Signed net flow across funds
+    two_funds = pd.DataFrame([
+        {"ticker": "XYZ", "action": "BUY", "basis": "volume", "est_value_vnd": 5e9},
+        {"ticker": "XYZ", "action": "SELL", "basis": "volume", "est_value_vnd": -2e9},
+        {"ticker": "XYZ", "action": "PRORATA", "basis": "volume", "est_value_vnd": 9e9},
+    ])
+    flow = market_flow(two_funds).set_index("ticker").loc["XYZ"]
+    assert flow.n_buy == 1 and flow.n_sell == 1 and np.isclose(flow.net_value_bn, 3.0)
+
+
+def test_corporate_action_ignores_bonds_and_is_permutation_invariant():
+    cols = ["observed_date", "fund", "mgmt_co", "ticker", "action", "basis", "w_prev", "w_new", "w_delta",
+            "vol_prev", "vol_new", "vol_pct", "vol_rel", "vol_scale", "est_value_vnd", "censored", "flag", "asset_class"]
+    rows = [
+        ("2026-07-08", "F1", "co", "BD1", "BUY", "volume", .05, .06, .01, 100, 120, .20, .20, 0, 1e9, False, "", "BOND"),
+        ("2026-07-08", "F2", "co", "BD1", "BUY", "volume", .05, .06, .01, 100, 120, .20, .20, 0, 1e9, False, "", "BOND"),
+        ("2026-07-08", "F3", "co", "BD1", "BUY", "volume", .05, .06, .01, 100, 120, .20, .20, 0, 1e9, False, "", "BOND"),
+        ("2026-07-08", "F1", "co", "EQ1", "BUY", "volume", .05, .06, .01, 100, 115, .15, .15, 0, 1e9, False, "", "STOCK"),
+        ("2026-07-08", "F2", "co", "EQ1", "BUY", "volume", .05, .06, .01, 100, 115.2, .152, .152, 0, 1e9, False, "", "STOCK"),
+        ("2026-07-08", "F3", "co", "EQ1", "BUY", "volume", .05, .06, .01, 100, 114.8, .148, .148, 0, 1e9, False, "", "STOCK"),
+    ]
+    cur = pd.DataFrame(rows, columns=cols)
+    flagged = flag_corporate_actions(cur, None, min_funds=3, spread=0.01, min_pct=0.03)
+    flagged_rev = flag_corporate_actions(cur.iloc[::-1].reset_index(drop=True), None, min_funds=3, spread=0.01, min_pct=0.03)
+    assert (flagged[flagged.asset_class == "BOND"].action == "BUY").all()
+    assert (flagged[flagged.asset_class == "STOCK"].action == "CORP_ACTION?").all()
+    pd.testing.assert_frame_equal(
+        flagged.sort_values(["asset_class", "fund"]).reset_index(drop=True),
+        flagged_rev.sort_values(["asset_class", "fund"]).reset_index(drop=True),
+    )
+
+
+def test_csv_preserves_na_nan_identifiers_and_tablestore_float_hash(tmp_path):
+    from vnfa.fmarket import parse_allocation
+
+    s = Store(tmp_path)
+    s.upsert_funds([{"code": "NA", "mgmt_co": "CO", "asset_code": "STOCK"}], "2026-10-01")
+    assert s.fund_names() == {"NA": "CO"}
+
+    hold = H([("NA", .10, 1000, 10, 10e6), ("NAN", .08, np.nan, np.nan, np.nan), ("NULL", .06, 500, 12, 6e6)])
+    status, _ = s.append_if_changed("NA", hold, "2026-10-01")
+    assert status == "baseline"
+    read_back = s.read_holdings("NA")
+    assert read_back.fund.tolist() == ["NA", "NA", "NA"]
+    assert read_back.ticker.tolist() == ["NA", "NAN", "NULL"]
+    assert pd.isna(read_back.set_index("ticker").loc["NAN", "volume"])
+
+    # Same-day STOCK and BOND changes for identical (fund, ticker) must not overwrite each other.
+    s.append_changes(pd.DataFrame([
+        {"observed_date": "2026-10-02", "fund": "NA", "ticker": "NA", "action": "NEW_IN_TOP10", "asset_class": "STOCK"},
+        {"observed_date": "2026-10-02", "fund": "NA", "ticker": "NA", "action": "NEW_IN_TOP10", "asset_class": "BOND"},
+    ]))
+    ch = s.read_changes()
+    assert len(ch) == 2 and set(ch.asset_class) == {"STOCK", "BOND"}
+    assert ch.fund.tolist() == ["NA", "NA"] and ch.ticker.tolist() == ["NA", "NA"]
+
+    # Historical IEEE-754 float noise in allocation.csv must match clean rounded parse_allocation output.
+    legacy_alloc = pd.DataFrame([{
+        "observed_date": "2026-10-01", "fund": "F1", "asset_code": "STOCK",
+        "asset_name": "Cổ phiếu", "pct": "0.20980000000000001", "report_date": "2026-09-01",
+        "content_hash": "legacyhash01",
+    }])
+    legacy_alloc.to_csv(tmp_path / "allocation.csv", sep=";", index=False)
+    ts = TableStore(tmp_path)
+    parsed = parse_allocation({"productAssetHoldingList": [
+        {"assetType": {"code": "STOCK", "name": "Cổ phiếu"}, "assetPercent": 20.98, "reportTime": "2026-09-01"}
+    ]})
+    assert parsed.pct.iloc[0] == 0.2098
+    assert ts.append_if_changed("allocation", "F1", parsed, "2026-10-02") == "unchanged"

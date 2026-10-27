@@ -15,7 +15,7 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
-from .store import SEP
+from .store import SEP, atomic_append_csv, read_csv_safe
 
 SOURCE_COLUMNS = [
     "event_id", "run_id", "provider", "endpoint", "source_reference", "started_at",
@@ -193,30 +193,50 @@ class ProvenanceStore:
     def __init__(self, root: str | Path = "data", write: bool = True):
         self.root = Path(root)
         self.write = write
+        self._id_cache: dict[str, tuple[tuple[int, int], set[str]]] = {}
         if write:
             self.root.mkdir(parents=True, exist_ok=True)
 
     def _path(self, name: str) -> Path:
         return self.root / name
 
-    def _read_existing(self, path: Path, expected: list[str]) -> pd.DataFrame:
+    def _existing_ids(self, path: Path, expected: list[str], id_column: str) -> set[str]:
+        if not path.exists():
+            self._id_cache.pop(path.name, None)
+            return set()
+        stat = path.stat()
+        stamp = (stat.st_mtime_ns, stat.st_size)
+        cached = self._id_cache.get(path.name)
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
         columns = list(pd.read_csv(path, sep=SEP, nrows=0).columns)
         if columns != expected:
             raise ProvenanceSchemaError(
                 f"{path} has columns {columns}, expected {expected}; preserve/backup it and migrate explicitly")
-        return pd.read_csv(path, sep=SEP, dtype=str)
+        id_frame = pd.read_csv(path, sep=SEP, usecols=[id_column], dtype=str, keep_default_na=False)
+        ids = {val for val in id_frame[id_column] if val}
+        self._id_cache[path.name] = (stamp, ids)
+        return ids
+
+    def _record_appended_ids(self, path: Path, id_column: str, incoming: pd.DataFrame) -> None:
+        if path.exists():
+            stat = path.stat()
+            existing = self._id_cache.get(path.name, ((0, 0), set()))[1]
+            updated = set(existing)
+            updated.update(str(v) for v in incoming[id_column] if pd.notna(v) and str(v))
+            self._id_cache[path.name] = ((stat.st_mtime_ns, stat.st_size), updated)
 
     def read_source_events(self) -> pd.DataFrame:
         path = self._path("source_runs.csv")
-        return pd.read_csv(path, sep=SEP, dtype=str) if path.exists() else pd.DataFrame(columns=SOURCE_COLUMNS)
+        return read_csv_safe(path, sep=SEP, dtype=str) if path.exists() else pd.DataFrame(columns=SOURCE_COLUMNS)
 
     def read_observations(self) -> pd.DataFrame:
         path = self._path("research_observations.csv")
-        return pd.read_csv(path, sep=SEP, dtype=str) if path.exists() else pd.DataFrame(columns=OBSERVATION_COLUMNS)
+        return read_csv_safe(path, sep=SEP, dtype=str) if path.exists() else pd.DataFrame(columns=OBSERVATION_COLUMNS)
 
     def read_quality_reports(self) -> pd.DataFrame:
         path = self._path("quality_reports.csv")
-        return pd.read_csv(path, sep=SEP, dtype=str) if path.exists() else pd.DataFrame(columns=QUALITY_COLUMNS)
+        return read_csv_safe(path, sep=SEP, dtype=str) if path.exists() else pd.DataFrame(columns=QUALITY_COLUMNS)
 
     def append_source_events(self, events: list[dict[str, Any]], run_id: str | None = None,
                              ingested_at: str | None = None) -> int:
@@ -232,14 +252,15 @@ class ProvenanceStore:
                 identity = {key: value for key, value in row.items() if key != "ingested_at"}
                 row["event_id"] = hashlib.sha256(canonical_json(identity).encode("utf-8")).hexdigest()
             rows.append(row)
-        incoming = pd.DataFrame(rows, columns=SOURCE_COLUMNS)
+        incoming = pd.DataFrame(rows, columns=SOURCE_COLUMNS).drop_duplicates("event_id", keep="first")
         path = self._path("source_runs.csv")
-        if path.exists():
-            old = self._read_existing(path, SOURCE_COLUMNS)
-            incoming = incoming[~incoming.event_id.isin(old.event_id)]
+        known_ids = self._existing_ids(path, SOURCE_COLUMNS, "event_id")
+        if known_ids:
+            incoming = incoming[~incoming.event_id.isin(known_ids)]
         if incoming.empty:
             return 0
-        incoming.to_csv(path, sep=SEP, mode="a", header=not path.exists(), index=False)
+        atomic_append_csv(incoming, path, sep=SEP)
+        self._record_appended_ids(path, "event_id", incoming)
         return len(incoming)
 
     def append_observations(self, observations: list[dict[str, Any]], run_id: str | None = None,
@@ -257,14 +278,15 @@ class ProvenanceStore:
                             if key not in {"observation_id", "run_id", "ingested_at"}}
                 row["observation_id"] = hashlib.sha256(canonical_json(identity).encode("utf-8")).hexdigest()
             rows.append(row)
-        incoming = pd.DataFrame(rows, columns=OBSERVATION_COLUMNS)
+        incoming = pd.DataFrame(rows, columns=OBSERVATION_COLUMNS).drop_duplicates("observation_id", keep="first")
         path = self._path("research_observations.csv")
-        if path.exists():
-            old = self._read_existing(path, OBSERVATION_COLUMNS)
-            incoming = incoming[~incoming.observation_id.isin(old.observation_id)]
+        known_ids = self._existing_ids(path, OBSERVATION_COLUMNS, "observation_id")
+        if known_ids:
+            incoming = incoming[~incoming.observation_id.isin(known_ids)]
         if incoming.empty:
             return 0
-        incoming.to_csv(path, sep=SEP, mode="a", header=not path.exists(), index=False)
+        atomic_append_csv(incoming, path, sep=SEP)
+        self._record_appended_ids(path, "observation_id", incoming)
         return len(incoming)
 
     def append_quality_reports(self, reports: list[dict[str, Any]], *, run_id: str | None = None,
@@ -288,12 +310,13 @@ class ProvenanceStore:
             identity = {key: value for key, value in row.items() if key != "recorded_at"}
             row["quality_event_id"] = hashlib.sha256(canonical_json(identity).encode("utf-8")).hexdigest()
             rows.append({column: row.get(column) for column in QUALITY_COLUMNS})
-        incoming = pd.DataFrame(rows, columns=QUALITY_COLUMNS)
+        incoming = pd.DataFrame(rows, columns=QUALITY_COLUMNS).drop_duplicates("quality_event_id", keep="first")
         path = self._path("quality_reports.csv")
-        if path.exists():
-            old = self._read_existing(path, QUALITY_COLUMNS)
-            incoming = incoming[~incoming.quality_event_id.isin(old.quality_event_id)]
+        known_ids = self._existing_ids(path, QUALITY_COLUMNS, "quality_event_id")
+        if known_ids:
+            incoming = incoming[~incoming.quality_event_id.isin(known_ids)]
         if incoming.empty:
             return 0
-        incoming.to_csv(path, sep=SEP, mode="a", header=not path.exists(), index=False)
+        atomic_append_csv(incoming, path, sep=SEP)
+        self._record_appended_ids(path, "quality_event_id", incoming)
         return len(incoming)

@@ -8,24 +8,112 @@ data/funds.csv           : danh bạ quỹ (mã, công ty quản lý, loại)
 from __future__ import annotations
 
 import hashlib
+import os
+import shutil
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
+from pandas._libs.parsers import STR_NA_VALUES
 
 SEP = ";"
 HOLD_COLS = ["observed_date", "fund", "ticker", "weight", "rank", "volume", "price_k",
              "asset_value", "industry", "update_date", "content_hash"]
 _STR = {"observed_date": str, "fund": str, "ticker": str, "content_hash": str, "update_date": str}
+ID_COLUMNS = frozenset({"code", "fund", "ticker"})
+
+
+def read_csv_safe(path: str | Path, *, sep: str = SEP, dtype: Any = None) -> pd.DataFrame:
+    """Read semicolon CSV while preserving literal 'NA'/'NAN'/'NULL' in identifier columns.
+
+    Empty strings remain missing everywhere, and all non-identifier columns retain
+    pandas' standard NA token semantics so missing values are never turned into text/zero.
+    """
+    p = Path(path)
+    header = pd.read_csv(p, sep=sep, nrows=0)
+    columns = list(header.columns)
+    na_map = {col: {""} if col in ID_COLUMNS else STR_NA_VALUES for col in columns}
+    effective_dtype = dtype
+    if isinstance(dtype, dict):
+        effective_dtype = {**{col: str for col in columns if col in ID_COLUMNS}, **dtype}
+    elif dtype is None:
+        id_present = {col: str for col in columns if col in ID_COLUMNS}
+        effective_dtype = id_present or None
+    return pd.read_csv(p, sep=sep, dtype=effective_dtype, keep_default_na=False, na_values=na_map)
+
+
+def atomic_write_csv(df: pd.DataFrame, path: str | Path, *, sep: str = SEP) -> None:
+    """Atomically write a complete CSV via temporary file + os.replace."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+    try:
+        df.to_csv(tmp, sep=sep, index=False)
+        os.replace(tmp, target)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def atomic_append_csv(df: pd.DataFrame, path: str | Path, *, sep: str = SEP) -> None:
+    """Atomically append rows to a CSV while preserving existing file bytes verbatim."""
+    if df is None or df.empty:
+        return
+    target = Path(path)
+    if not target.exists():
+        atomic_write_csv(df, target, sep=sep)
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+    try:
+        shutil.copyfile(target, tmp)
+        # Ensure trailing newline before appending if existing file lacked one.
+        with open(tmp, "rb+") as fh:
+            fh.seek(0, os.SEEK_END)
+            if fh.tell() > 0:
+                fh.seek(-1, os.SEEK_END)
+                if fh.read(1) != b"\n":
+                    fh.write(b"\n")
+        df.to_csv(tmp, sep=sep, mode="a", header=False, index=False)
+        os.replace(tmp, target)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def content_hash(df: pd.DataFrame) -> str:
     """Băm tập (mã, tỷ trọng, khối lượng) để biết danh mục có thật sự đổi hay không."""
-    d = df.sort_values("ticker")
-    key = "|".join(
-        f"{r.ticker}:{r.weight:.5f}:{'' if pd.isna(r.volume) else int(r.volume)}" for r in d.itertuples()
-    )
-    return hashlib.sha1(key.encode()).hexdigest()[:12]
+    d = df.assign(_ticker_str=df.ticker.astype(str)).sort_values("_ticker_str", kind="stable")
+    parts = []
+    for r in d.itertuples():
+        vol_txt = ""
+        if pd.notna(r.volume) and np.isfinite(float(r.volume)):
+            vol_txt = str(int(round(float(r.volume))))
+        parts.append(f"{r.ticker}:{float(r.weight):.5f}:{vol_txt}")
+    return hashlib.sha1("|".join(parts).encode()).hexdigest()[:12]
+
+
+def _canonical_cell(value: Any) -> str:
+    if value is None or value is pd.NA:
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    text = str(value).strip()
+    if text == "":
+        return ""
+    try:
+        num = float(text)
+        if np.isfinite(num):
+            rounded = round(num, 8)
+            if rounded == 0.0:
+                return "0"
+            formatted = f"{rounded:.8f}".rstrip("0").rstrip(".")
+            return formatted or "0"
+    except (TypeError, ValueError):
+        pass
+    return text
 
 
 class Store:
@@ -45,7 +133,7 @@ class Store:
         p = self._hold_path(fund)
         if not p.exists():
             return pd.DataFrame(columns=HOLD_COLS)
-        return pd.read_csv(p, sep=SEP, dtype=_STR)
+        return read_csv_safe(p, sep=SEP, dtype=_STR)
 
     def last_disclosure(self, fund: str) -> pd.DataFrame | None:
         if fund not in self._last:
@@ -59,7 +147,7 @@ class Store:
         return self._last[fund]
 
     def append_if_changed(self, fund: str, holdings: pd.DataFrame, observed_date: str):
-        """Trả về (status, prev). status ∈ {'baseline','changed','unchanged'}."""
+        """Trả về (status, prev). status ∈ {'baseline','changed','unchanged','empty'}."""
         if holdings is None or holdings.empty:
             return "empty", None
         try:
@@ -78,25 +166,31 @@ class Store:
         block.insert(0, "observed_date", observed_date)
         block.insert(1, "fund", fund)
         block["content_hash"] = h
-        self._last[fund] = block.reindex(columns=HOLD_COLS).reset_index(drop=True)
+        aligned = block.reindex(columns=HOLD_COLS).reset_index(drop=True)
         if self.write:
-            p = self._hold_path(fund)
-            block.reindex(columns=HOLD_COLS).to_csv(p, sep=SEP, mode="a", header=not p.exists(), index=False)
+            atomic_append_csv(aligned, self._hold_path(fund), sep=SEP)
+        self._last[fund] = aligned
         return ("baseline" if prev is None else "changed"), prev
 
     # ── nhật ký thay đổi ──
     def read_changes(self) -> pd.DataFrame:
         p = self.root / "changes.csv"
-        return pd.read_csv(p, sep=SEP, dtype={"observed_date": str}) if p.exists() else pd.DataFrame()
+        return read_csv_safe(p, sep=SEP, dtype={"observed_date": str}) if p.exists() else pd.DataFrame()
 
     def append_changes(self, changes: pd.DataFrame) -> None:
         if changes is None or changes.empty or not self.write:
             return
         old = self.read_changes()
         allc = pd.concat([old, changes], ignore_index=True) if not old.empty else changes.copy()
-        allc = allc.drop_duplicates(["observed_date", "fund", "ticker"], keep="last")
-        allc = allc.sort_values(["observed_date", "fund", "ticker"])
-        allc.to_csv(self.root / "changes.csv", sep=SEP, index=False)
+        if "asset_class" in allc.columns:
+            allc["_ac_key"] = allc["asset_class"].fillna("STOCK").astype(str)
+            allc = allc.drop_duplicates(["observed_date", "fund", "_ac_key", "ticker"], keep="last")
+            allc = allc.sort_values(["observed_date", "fund", "_ac_key", "ticker"], kind="stable")
+            allc = allc.drop(columns=["_ac_key"])
+        else:
+            allc = allc.drop_duplicates(["observed_date", "fund", "ticker"], keep="last")
+            allc = allc.sort_values(["observed_date", "fund", "ticker"], kind="stable")
+        atomic_write_csv(allc, self.root / "changes.csv", sep=SEP)
 
     # ── danh bạ quỹ ──
     def upsert_funds(self, metas: list[dict], seen_date: str) -> None:
@@ -106,16 +200,16 @@ class Store:
         new = pd.DataFrame(metas)
         new["last_seen"] = seen_date
         if p.exists():
-            old = pd.read_csv(p, sep=SEP, dtype=str)
-            new = pd.concat([old, new.astype(str)], ignore_index=True)
-        new = new.drop_duplicates("code", keep="last").sort_values("code")
-        new.to_csv(p, sep=SEP, index=False)
+            old = read_csv_safe(p, sep=SEP, dtype=str)
+            new = pd.concat([old, new], ignore_index=True)
+        new = new.drop_duplicates("code", keep="last").sort_values("code", kind="stable")
+        atomic_write_csv(new, p, sep=SEP)
 
     def fund_names(self) -> dict:
         p = self.root / "funds.csv"
         if not p.exists():
             return {}
-        f = pd.read_csv(p, sep=SEP, dtype=str)
+        f = read_csv_safe(p, sep=SEP, dtype=str)
         return dict(zip(f.code, f.mgmt_co))
 
 
@@ -129,7 +223,7 @@ class TableStore:
 
     def __init__(self, root: str | Path = "data", write: bool = True):
         self.root, self.write = Path(root), write
-        self._hashes: dict[str, dict[str, str]] = {}
+        self._hashes: dict[str, dict[str, set[str]]] = {}
         self._last_dates: dict[str, dict[str, str]] = {}
         self._snapshot_last: dict[str, tuple[str, float]] | None = None
         if write:
@@ -140,23 +234,37 @@ class TableStore:
 
     def read(self, table: str) -> pd.DataFrame:
         p = self.path(table)
-        return pd.read_csv(p, sep=SEP, dtype=str) if p.exists() else pd.DataFrame()
+        return read_csv_safe(p, sep=SEP, dtype=str) if p.exists() else pd.DataFrame()
 
     @staticmethod
     def _hash(df: pd.DataFrame) -> str:
-        cols = sorted(df.columns)
-        txt = df[cols].astype(str).sort_values(cols).to_csv(index=False)
+        cols = [c for c in sorted(df.columns) if c not in {"observed_date", "fund", "content_hash"}]
+        if not cols:
+            return hashlib.sha1(b"").hexdigest()[:12]
+        canonical = pd.DataFrame({col: [_canonical_cell(v) for v in df[col]] for col in cols})
+        txt = canonical.sort_values(cols, kind="stable").to_csv(index=False)
         return hashlib.sha1(txt.encode()).hexdigest()[:12]
 
-    def _last_hashes(self, table: str) -> dict[str, str]:
+    def _last_hashes(self, table: str) -> dict[str, set[str]]:
         if table not in self._hashes:
             t = self.read(table)
             if t.empty:
                 self._hashes[table], self._last_dates[table] = {}, {}
             else:
-                self._hashes[table] = dict(t.groupby("fund").content_hash.last())
-                last_rows = t.groupby("fund", sort=False).tail(1)
-                self._last_dates[table] = dict(zip(last_rows.fund, last_rows.observed_date))
+                hashes: dict[str, set[str]] = {}
+                dates: dict[str, str] = {}
+                for fund, group in t.groupby("fund", sort=False):
+                    fund_str = str(fund)
+                    last_row = group.iloc[-1]
+                    stored_hash = str(last_row.content_hash)
+                    dates[fund_str] = str(last_row.observed_date)
+                    latest_block = group[
+                        (group.observed_date == last_row.observed_date)
+                        & (group.content_hash == last_row.content_hash)
+                    ]
+                    hashes[fund_str] = {stored_hash, self._hash(latest_block)}
+                self._hashes[table] = hashes
+                self._last_dates[table] = dates
         return self._hashes[table]
 
     def append_if_changed(self, table: str, fund: str, df: pd.DataFrame, observed_date: str) -> str:
@@ -170,20 +278,20 @@ class TableStore:
         h = self._hash(df)
         hashes = self._last_hashes(table)
         dates = self._last_dates[table]
-        if fund in dates and observed_date < pd.Timestamp(dates[fund]).date().isoformat():
-            raise ValueError(f"Snapshot {table} ngược thời gian cho {fund}: {observed_date} < {dates[fund]}")
-        if hashes.get(fund) == h:
+        fund_key = str(fund)
+        if fund_key in dates and observed_date < pd.Timestamp(dates[fund_key]).date().isoformat():
+            raise ValueError(f"Snapshot {table} ngược thời gian cho {fund}: {observed_date} < {dates[fund_key]}")
+        if h in hashes.get(fund_key, set()):
             return "unchanged"
-        status = "changed" if fund in hashes else "baseline"
+        status = "changed" if fund_key in hashes else "baseline"
         if self.write:
             block = df.copy()
             block.insert(0, "observed_date", observed_date)
             block.insert(1, "fund", fund)
             block["content_hash"] = h
-            p = self.path(table)
-            block.to_csv(p, sep=SEP, mode="a", header=not p.exists(), index=False)
-        hashes[fund] = h
-        dates[fund] = observed_date
+            atomic_append_csv(block, self.path(table), sep=SEP)
+        hashes[fund_key] = {h}
+        dates[fund_key] = observed_date
         return status
 
     def latest(self, table: str) -> pd.DataFrame:
@@ -198,7 +306,7 @@ class TableStore:
     # ── NAV ──
     def read_nav(self) -> pd.DataFrame:
         p = self.root / "nav.csv"
-        return pd.read_csv(p, sep=SEP, dtype={"fund": str, "date": str}) if p.exists() else pd.DataFrame(columns=["fund", "date", "nav"])
+        return read_csv_safe(p, sep=SEP, dtype={"fund": str, "date": str}) if p.exists() else pd.DataFrame(columns=["fund", "date", "nav"])
 
     def nav_last_date(self, fund: str, nav: pd.DataFrame | None = None) -> str | None:
         nav = self.read_nav() if nav is None else nav
@@ -227,14 +335,15 @@ class TableStore:
         new = new.drop_duplicates(["fund", "date"], keep="last")
         both = pd.concat([old.assign(_o=1), new.assign(_o=0)], ignore_index=True)
         both["nav"] = both.nav.astype(float)
-        merged = both.sort_values(["fund", "date", "_o"]).drop_duplicates(["fund", "date"], keep="first")
+        merged = both.sort_values(["fund", "date", "_o"], kind="stable").drop_duplicates(["fund", "date"], keep="first")
         added = len(merged) - len(old)
         changed = 0
         if not old.empty:
             m = old.merge(new, on=["fund", "date"], suffixes=("_o", "_n"))
             changed = int(((m.nav_o.astype(float) - m.nav_n.astype(float)).abs() > 1e-9).sum())
         if self.write:
-            merged[["fund", "date", "nav"]].sort_values(["fund", "date"]).to_csv(self.root / "nav.csv", sep=SEP, index=False)
+            out = merged[["fund", "date", "nav"]].sort_values(["fund", "date"], kind="stable")
+            atomic_write_csv(out, self.root / "nav.csv", sep=SEP)
         return added + changed
 
     # ── NAV chụp hằng ngày từ chi tiết quỹ (API lịch sử NAV của Fmarket bị cũ/thưa, xem README) ──
@@ -251,7 +360,8 @@ class TableStore:
             nav_value = float(nav)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"NAV snapshot không hợp lệ: fund={fund!r}, date={date!r}, nav={nav!r}") from exc
-        if not fund or not np.isfinite(nav_value) or nav_value <= 0:
+        fund_clean = str(fund).strip() if fund is not None and not pd.isna(fund) else ""
+        if not fund_clean or not np.isfinite(nav_value) or nav_value <= 0:
             raise ValueError(f"NAV snapshot phải có mã quỹ và NAV dương hữu hạn: {fund!r}, {nav!r}")
 
         if self._snapshot_last is None:
@@ -267,17 +377,18 @@ class TableStore:
                 for row in t.groupby("fund", sort=False).tail(1).itertuples(index=False):
                     self._snapshot_last[str(row.fund)] = (str(row.date), float(row.nav))
 
-        previous = self._snapshot_last.get(str(fund))
+        previous = self._snapshot_last.get(fund_clean)
         if previous is not None:
             last_date, last_nav = previous
             if obs_date < last_date:
-                raise ValueError(f"NAV snapshot ngược thời gian cho {fund}: {obs_date} < {last_date}")
+                raise ValueError(f"NAV snapshot ngược thời gian cho {fund_clean}: {obs_date} < {last_date}")
             if obs_date == last_date and abs(last_nav - nav_value) < 1e-9:
                 return False
 
         if self.write:
-            p = self.path("nav_snapshots")
-            pd.DataFrame([{"fund": fund, "date": obs_date, "nav": nav_value}]).to_csv(
-                p, sep=SEP, mode="a", header=not p.exists(), index=False)
-        self._snapshot_last[str(fund)] = (obs_date, nav_value)
+            atomic_append_csv(
+                pd.DataFrame([{"fund": fund_clean, "date": obs_date, "nav": nav_value}]),
+                self.path("nav_snapshots"), sep=SEP,
+            )
+        self._snapshot_last[fund_clean] = (obs_date, nav_value)
         return True
