@@ -1,0 +1,5 @@
+observed_date;fund;ticker;weight;rank;volume;price_k;asset_value;industry;update_date;content_hash
+2026-10-27;KSIF;MSN123009;0.1657;1;147142.0;;14731559850.0;Thực phẩm - Đồ uống;2026-10-14;9fa6aaf9ba23
+2026-10-27;KSIF;BAF126003;0.1272;2;113.0;;11313619754.0;Nông - Lâm - Ngư;2026-10-14;9fa6aaf9ba23
+2026-10-27;KSIF;SHS12601-OTC;0.1124;3;100.0;;10000000000.0;Khác;2026-10-14;9fa6aaf9ba23
+2026-10-27;KSIF;NLG12501;0.0907;4;81.0;;8063084977.0;Bất động sản;2026-10-14;9fa6aaf9ba23

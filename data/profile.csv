@@ -1,0 +1,70 @@
+observed_date;fund;name;short_name;mgmt_co;asset_code;fund_type;risk_level;management_fee_pct;buy_min_vnd;sell_min_units;settle_days;cutoff;first_issue_date;website;content_hash
+2026-10-27;ABBF;QUỸ ĐẦU TƯ TRÁI PHIẾU AN BÌNH;ABBF;ABF;BOND;Quỹ mở;Thấp;0.525;1000000.0;100.0;5.0;12:00;2020-11-03;https://abf.com.vn/;518953454808
+2026-10-27;ABEF;QUỸ ĐẦU TƯ CỔ PHIẾU AN BÌNH THỊNH VƯỢNG;ABEF;ABF;STOCK;Quỹ mở;Trung bình;1.7;10000.0;1.0;5.0;12:00;;https://abf.com.vn/;3c7b66e57876
+2026-10-27;AEIF;QUỸ ĐẦU TƯ CỔ PHIẾU AMBER;AEIF;AMBER CAPITAL;STOCK;Quỹ mở;Trung bình;1.35;100000.0;5.0;5.0;14:30;2026-05-11;https://ambercapital.vn/;489ca6abb907
+2026-10-27;ASBF;QUỸ ĐẦU TƯ TRÁI PHIẾU AN TOÀN AMBER;ASBF;AMBER CAPITAL;BOND;Quỹ mở;Thấp;0.85;100000.0;5.0;5.0;14:30;2021-05-25;https://afm.com.vn/quy-mo-asbf/;70a9da8035f4
+2026-10-27;BMFF;QUỸ ĐẦU TƯ TĂNG TRƯỞNG BORDIER - MB FLAGSHIP;BMFF;MBCAPITAL;STOCK;Quỹ mở;Cao;1.8;50000.0;10.0;5.0;14:30;2023-01-03;https://mbcapital.com.vn/;b5d497dca5c4
+2026-10-27;BVBF;QUỸ ĐẦU TƯ TRÁI PHIẾU BẢO VIỆT ;BVBF;BAOVIETFUND;BOND;Quỹ mở;Thấp;0.5;100000.0;5.0;5.0;14:40;2016-05-20;https://baovietfund.com.vn/san-pham/BVBF;f980653c37f2
+2026-10-27;BVFED;QUỸ ĐẦU TƯ CỔ PHIẾU NĂNG ĐỘNG BẢO VIỆT;BVFED;BAOVIETFUND;STOCK;Quỹ mở;Trung bình;1.0;100000.0;5.0;5.0;14:40;2014-01-08;https://baovietfund.com.vn/san-pham/BVFED;22a8783a96d7
+2026-10-27;BVPF;QUỸ ĐẦU TƯ CỔ PHIẾU TRIỂN VỌNG BẢO VIỆT;BVPF;BAOVIETFUND;STOCK;Quỹ mở;Cao;1.5;100000.0;5.0;5.0;14:40;2016-12-29;https://baovietfund.com.vn/san-pham/BVPF;0281d436e6df
+2026-10-27;DCAF;QUỸ ĐẦU TƯ TĂNG TRƯỞNG DFVN;DFVN-CAF;DFVN;STOCK;Quỹ mở;Trung bình-Cao;1.5;100000.0;10.0;4.0;11:30;2019-01-03;https://www.dfvn.com.vn/vi/investment-solutions/fund-management/dfvn-caf/fund-performance;8af078b6e147
+2026-10-27;DCBA;QUỸ ĐẦU TƯ CÂN BẰNG DC;DCBA;DCVFM;BALANCED;Quỹ mở;Trung bình;1.6;100000.0;10.0;3.0;14:30;2026-07-29;https://www.dragoncapital.com.vn;27d1409fa16c
+2026-10-27;DFIX;QUỸ ĐẦU TƯ TRÁI PHIẾU DFVN;DFVN-FIX;DFVN;BOND;Quỹ mở;Thấp - Trung bình;0.9;100000.0;10.0;4.0;11:30;2021-02-04;https://www.dfvn.com.vn/vi;10895f5638b3
+2026-10-27;ENF;QUỸ ĐẦU TƯ NĂNG ĐỘNG EASTSPRING INVESTMENTS VIỆT NAM;ENF;EASTSPRING VIET NAM;BALANCED;Quỹ mở;Trung bình-Cao;1.5;100000.0;2.0;3.0;10:30;2014-03-04;https://www.eastspring.com/vn/funds/nav-reports;542c87240517
+2026-10-27;EVESG;QUỸ ĐẦU TƯ CỔ PHIẾU ESG EASTSPRING INVESTMENTS VIỆT NAM;EVESG;EASTSPRING VIET NAM;STOCK;Quỹ mở;Cao;1.3;100000.0;10.0;3.0;10:30;2024-09-27;https://www.eastspring.com/;d324659b1a3e
+2026-10-27;GDEGF;QUỸ ĐẦU TƯ CỔ PHIẾU TĂNG TRƯỞNG RỒNG VÀNG;GDEGF;HDCAPITAL;STOCK;Quỹ mở;Trung bình;1.2;100000.0;10.0;3.0;14:30;2025-06-30;https://hdcap.vn/;17ab6e085190
+2026-10-27;GFMVIF;QUỸ ĐẦU TƯ TRÁI PHIẾU LP;LPBF;LPBA;BOND;Quỹ mở;Trung bình-Cao;1.2;10000.0;2.0;5.0;14:30;1970-01-01;https://genesisfund.com.vn/;b3d2171ae00b
+2026-10-27;HDBOND;QUỸ ĐẦU TƯ TRÁI PHIẾU LỢI TỨC CAO HD;HDBOND;HDCAPITAL;BOND;Quỹ mở;Thấp;0.95;100000.0;10.0;1.0;14:45;2022-12-30;https://hdcap.vn/page/infopublist;6771a8eabff0
+2026-10-27;KDEF;QUỸ ĐẦU TƯ CỔ PHIẾU CỔ TỨC TĂNG TRƯỞNG KIM;KDEF;KIM;STOCK;Quỹ mở;Trung bình-Cao;1.7;100000.0;10.0;5.0;14:40;;https://koreainvestment.com.vn/;925539e17e21
+2026-10-27;KSIF;QUỸ ĐẦU TƯ TRÁI PHIẾU CHIẾN LƯỢC KIM;KSIF;KIM;BOND;Quỹ mở;Thấp;1.2;100000.0;10.0;5.0;14:40;;https://koreainvestment.com.vn;a634a47f265c
+2026-10-27;LHBF;QUỸ ĐẦU TƯ TRÁI PHIẾU LIGHTHOUSE;LHBF;LIGHTHOUSE CAPITAL;BOND;Quỹ mở;Thấp;1.0;100000.0;10.0;1.0;14:30;2022-12-29;https://lighthousecapital.com.vn/;8ded7248c538
+2026-10-27;LHCDF;QUỸ ĐẦU TƯ NĂNG ĐỘNG LIGHTHOUSE;LHCDF;LIGHTHOUSE CAPITAL;STOCK;Quỹ mở;Trung bình-Cao;1.5;100000.0;;5.0;14:30;1970-01-01;https://lighthousecapital.com.vn/;a67538fa7036
+2026-10-27;LHFCF;QUỸ ĐẦU TƯ TRÁI PHIẾU DÒNG TIỀN LINH HOẠT LIGHTHOUSE;LHFCF;LIGHTHOUSE CAPITAL;BOND;Quỹ mở;Thấp;0.9;100000.0;10.0;3.0;14:30;;https://lighthousecapital.com.vn/;dda9d8557b15
+2026-10-27;LPLF;QUỸ ĐẦU TƯ DOANH NGHIỆP DẪN ĐẦU LP ;LPLF;LPBA;STOCK;Quỹ mở;Trung bình-Cao;1.75;10000.0;;5.0;14:30;;https://www.lpbs.com.vn/;934fd260791e
+2026-10-27;MAFBAL;QUỸ ĐẦU TƯ CÂN BẰNG MANULIFE;MAFBAL;MANULIFE INVESTMENTS;BALANCED;Quỹ mở;Thấp - Trung bình;1.2;200000.0;;4.0;14:30;2017-09-29;https://www.manulifeim.com.vn;aaf19676dbc3
+2026-10-27;MAFEQI;QUỸ ĐẦU TƯ CỔ PHIẾU MANULIFE;MAFEQI;MANULIFE INVESTMENTS;STOCK;Quỹ mở;Trung bình-Cao;1.75;500000.0;;4.0;14:30;2014-10-01;https://www.manulifeim.com.vn;56fd2e77e3c7
+2026-10-27;MAFF;QUỸ ĐẦU TƯ TRÁI PHIẾU LINH HOẠT MIRAE ASSET VIỆT NAM;MAFF;MIRAE ASSET;BOND;Quỹ mở;Thấp;0.8;1000000.0;10.0;5.0;11:00;2021-12-17;https://fundmanagement-miraeasset.com.vn/pages/thong-tin-chung;80f8585723d3
+2026-10-27;MAGEF;QUỸ ĐẦU TƯ CỔ PHIẾU TĂNG TRƯỞNG MIRAE ASSET VIỆT NAM;MAGEF;MIRAE ASSET;STOCK;Quỹ mở;Cao;1.75;1000000.0;10.0;5.0;11:00;2019-07-23;http://fundmanagement-miraeasset.com.vn/pages/thong-tin-chung;74028f8804eb
+2026-10-27;MBAM;QUỸ ĐẦU TƯ TRÁI PHIẾU DÒNG TIỀN LINH HOẠT MB;MBAM;MBCAPITAL;BOND;Quỹ mở;Thấp;1.5;10000.0;1.0;5.0;14:30;2024-04-11;https://mbcapital.com.vn/;11199281cfb7
+2026-10-27;MBBOND;QUỸ ĐẦU TƯ TRÁI PHIẾU MB;MBBOND;MBCAPITAL;BOND;Quỹ mở;Thấp;1.2;50000.0;10.0;5.0;14:30;2018-03-26;https://mbcapital.com.vn/quan-ly-quy/MBBOND;9b5bb38526ab
+2026-10-27;MBVF;QUỸ ĐẦU TƯ GIÁ TRỊ MB CAPITAL;MBVF;MBCAPITAL;STOCK;Quỹ mở;Trung bình-Cao;1.5;50000.0;10.0;5.0;14:30;2014-04-25;https://mbcapital.com.vn/quan-ly-quy/MBVF;7e54450b9b8c
+2026-10-27;MDI;QUỸ ĐẦU TƯ NĂNG ĐỘNG MANULIFE;MDI;MANULIFE INVESTMENTS;BALANCED;Quỹ mở;Thấp;1.75;100000.0;;4.0;14:30;2023-11-30;https://www.manulifeim.com.vn;1676a74fea80
+2026-10-27;PBIF;QUỸ ĐẦU TƯ CÂN BẰNG PVCOM;PBIF;PVCB CAPITAL;BALANCED;Quỹ mở;Trung bình;1.3;1000000.0;;5.0;14:45;1970-01-01;https://pvcomcapital.com.vn;71a9440acfab
+2026-10-27;PHVSF;QUỸ ĐẦU TƯ CHỌN LỌC PHÚ HƯNG VIỆT NAM;PHVSF;PHFM;STOCK;Quỹ mở;Cao;1.5;100000.0;10.0;5.0;14:30;2022-11-21;https://www.phfm.vn/;5c3893b74b27
+2026-10-27;PVBF;QUỸ ĐẦU TƯ TRÁI PHIẾU PVCOM;PVBF;PVCB CAPITAL;BOND;Quỹ mở;Thấp - Trung bình;0.5;1000000.0;10.0;3.0;14:45;2020-02-07;https://pvcomcapital.com.vn/quy-pvbf;9f819c7c1613
+2026-10-27;RVPF24;QUỸ ĐẦU TƯ THỊNH VƯỢNG RỒNG VIỆT;RVPIF;VDAM;STOCK;Quỹ mở;Cao;1.5;100000.0;10.0;5.0;14:30;;https://vdam.com.vn/;c65a8166eb76
+2026-10-27;SSIBF;QUỸ ĐẦU TƯ TRÁI PHIẾU SSI;SSIBF;SSIAM;BOND;Quỹ mở;Thấp;1.0;10000.0;2.0;3.0;14:40;2017-08-30;https://www.ssi.com.vn/ssiam/hieu-qua-dau-tu-cua-quy-ssibf;ff996b315e8b
+2026-10-27;SSIEF;QUỸ ĐẦU TƯ KIẾN TẠO TƯƠNG LAI SSI;SSI-EF;SSIAM;BALANCED;Quỹ mở;Trung bình;1.75;10000.0;2.0;5.0;14:40;;https://ssiam.com.vn/;ad303dcf51a5
+2026-10-27;SSIPDF;QUỸ ĐẦU TƯ CỔ TỨC TĂNG TRƯỞNG KÉP SSI;SSI-PDF;SSIAM;STOCK;Quỹ mở;Trung bình;1.9;10000.0;2.0;5.0;14:40;;https://ssiam.com.vn/san-pham;275e96196ff1
+2026-10-27;SSISCA;QUỸ ĐẦU TƯ LỢI THẾ CẠNH TRANH BỀN VỮNG SSI;SSISCA;SSIAM;STOCK;Quỹ mở;Trung bình;1.75;10000.0;2.0;3.0;14:40;2014-09-26;https://www.ssi.com.vn/ssiam/hieu-qua-dau-tu-cua-quy-ssi-sca;0b7bf16f3969
+2026-10-27;TBLF;QUỸ ĐẦU TƯ CỔ PHIẾU TĂNG TRƯỞNG BALLAD VIỆT NAM;TBLF;SGIC;STOCK;Quỹ mở;Trung bình-Cao;1.3;2000000.0;10.0;4.0;14:30;2021-09-30;https://sgicapital.com.vn/;2514faaa160e
+2026-10-27;TCGF;QUỸ ĐẦU TƯ TĂNG TRƯỞNG THÀNH CÔNG;TCGF;TCAM;STOCK;Quỹ mở;Trung bình;1.5;100000.0;10.0;5.0;14:45;1970-01-01;https://tcam.com.vn/;f56d7e5afc45
+2026-10-27;TVPF;QUỸ ĐẦU TƯ CỔ PHIẾU TRIỂN VỌNG NTP;NTPPF;NTP AM;STOCK;Quỹ mở;Trung bình-Cao;1.75;500000.0;;5.0;14:30;2022-06-12;https://tvfm.com.vn/;7841f2e7e4fa
+2026-10-27;UMMF;QUỸ ĐẦU TƯ UNITED DÒNG TIỀN LINH HOẠT;UMMF;UOBAM VIETNAM;BOND;Quỹ mở;Thấp;0.6;100000.0;10.0;3.0;14:45;;https://www.uobam.com.vn/uobam/funds-and-services/funds/ummf;b338a4e8c465
+2026-10-27;USIF;QUỸ ĐẦU TƯ TRÁI PHIẾU UNITED THU NHẬP ỔN ĐỊNH;USIF;UOBAM VIETNAM;BOND;Quỹ mở;Thấp;0.6;1000000.0;100.0;2.0;14:45;;https://www.uobam.com.vn/;401d00c0d5b1
+2026-10-27;UVDIF;QUỸ ĐẦU TƯ UNITED THU NHẬP NĂNG ĐỘNG VIỆT NAM;UVDIF;UOBAM VIETNAM;BALANCED;Quỹ mở;Trung bình;1.5;2000000.0;100.0;3.0;14:45;1970-01-01;https://www.uobam.com.vn/;a316b5ba7e40
+2026-10-27;UVEEF;QUỸ ĐẦU TƯ CỔ PHIẾU UNITED ESG VIỆT NAM;UVEEF;UOBAM VIETNAM;STOCK;Quỹ mở;Cao;1.75;100000.0;10.0;3.0;14:45;2022-09-30;https://www.uobam.com.vn/FundsAndServices/Fund1_2;80f24f47cd59
+2026-10-27;VBIF;QUỸ ĐẦU TƯ CÂN BẰNG VIETINBANK;VBIF;VIETINBANK CAPITAL;BALANCED;Quỹ mở;Trung bình;1.5;500000.0;100.0;5.0;14:45;;https://www.vietinbankcapital.vn;288816198a83
+2026-10-27;VCAMBF;QUỸ ĐẦU TƯ CÂN BẰNG BẢN VIỆT;VCAMBF;VCAM;BALANCED;Quỹ mở;Trung bình;1.2;100000.0;10.0;3.0;14:45;2014-04-11;https://vietcapital.com.vn/;7ea5e47a3d4e
+2026-10-27;VCAMDF;QUỸ ĐẦU TƯ BẢN VIỆT DISCOVERY;VCAMDF;VCAM;STOCK;Quỹ mở;Cao;1.5;100000.0;10.0;3.0;14:45;1970-01-01;https://vietcapital.com.vn/;3f5fb1277058
+2026-10-27;VCAMFI;QUỸ ĐẦU TƯ TRÁI PHIẾU BẢN VIỆT;VCAMFI;VCAM;BOND;Quỹ mở;Thấp;1.0;100000.0;10.0;3.0;14:45;2022-09-22;https://vietcapital.com.vn/;8c18736c561c
+2026-10-27;VCBFAIF;QUỸ ĐẦU TƯ THU NHẬP CHỦ ĐỘNG VCBF;VCBF-AIF;VIETCOMBANK FUND;STOCK;Quỹ mở;Trung bình;1.9;100000.0;5.0;5.0;14:00;;https://www.vcbf.com/;0aaabe225ffe
+2026-10-27;VCBFBCF;QUỸ ĐẦU TƯ CỔ PHIẾU HÀNG ĐẦU VCBF;VCBF-BCF;VIETCOMBANK FUND;STOCK;Quỹ mở;Cao;1.9;100000.0;5.0;5.0;14:00;2014-08-22;https://www.vcbf.com/quy-mo/cac-quy-mo/quy-dau-tu-co-phieu-hang-dau-vcbf/;31e8bb6f25c3
+2026-10-27;VCBFFIF;QUỸ ĐẦU TƯ TRÁI PHIẾU VCBF;VCBF-FIF;VIETCOMBANK FUND;BOND;Quỹ mở;Thấp;0.8;100000.0;5.0;5.0;14:00;2019-08-09;https://www.vcbf.com/quy-mo/cac-quy-mo/quy-dau-tu-can-bang-chien-luoc-vcbf/#?tabid=102;e899d1556975
+2026-10-27;VCBFMGF;QUỸ ĐẦU TƯ CỔ PHIẾU TĂNG TRƯỞNG VCBF;VCBF-MGF;VIETCOMBANK FUND;STOCK;Quỹ mở;Cao;1.9;100000.0;5.0;5.0;14:00;2021-10-29;https://www.vcbf.com/quy-mo/cac-quy-mo/quy-dau-tu-co-phieu-hang-dau-vcbf/;65b5665b7be8
+2026-10-27;VCBFTBF;QUỸ ĐẦU TƯ CÂN BẰNG CHIẾN LƯỢC VCBF;VCBF-TBF;VIETCOMBANK FUND;BALANCED;Quỹ mở;Trung bình;1.5;100000.0;5.0;5.0;14:00;2013-12-24;https://www.vcbf.com/quy-mo/cac-quy-mo/quy-dau-tu-can-bang-chien-luoc-vcbf/#?tabid=102;ac0fb4148e08
+2026-10-27;VDEF;QUỸ ĐẦU TƯ CỔ PHIẾU CƠ HỘI TIÊN PHONG VINACAPITAL;VDEF;VINACAPITAL;STOCK;Quỹ mở;Trung bình;1.75;100000.0;10.0;3.0;14:40;2024-06-04;https://mio.vinacapital.com/;0c971c3c6bf7
+2026-10-27;VEOF;QUỸ ĐẦU TƯ CỔ PHIẾU DOANH NGHIỆP HÀNG ĐẦU VINACAPITAL;VEOF;VINACAPITAL;STOCK;Quỹ mở;Trung bình-Cao;1.75;100000.0;10.0;4.0;14:40;2014-07-01;https://wm.vinacapital.com/quy-dau-tu-co-phieu-hung-thinh-veof;e2c29da8d614
+2026-10-27;VESAF;QUỸ ĐẦU TƯ CỔ PHIẾU TĂNG TRƯỞNG CHIẾN LƯỢC VINACAPITAL;VESAF;VINACAPITAL;STOCK;Quỹ mở;Trung bình-Cao;1.75;100000.0;10.0;4.0;14:40;2017-04-18;https://wm.vinacapital.com/quy-dau-tu-co-phieu-tiep-can-thi-truong-viet-nam-vesaf;1168f1463785
+2026-10-27;VFF;QUỸ ĐẦU TƯ TRÁI PHIẾU NÂNG CAO VINACAPITAL;VFF;VINACAPITAL;BOND;Quỹ mở;Thấp - Trung bình;0.95;100000.0;10.0;4.0;14:40;2013-04-01;https://wm.vinacapital.com/quy-dau-tu-trai-phieu-bao-thinh-vff;dc716238e166
+2026-10-27;VFMVF1;QUỸ ĐẦU TƯ CHỨNG KHOÁN NĂNG ĐỘNG DC;DCDS;DCVFM;STOCK;Quỹ mở;Trung bình;1.95;100000.0;10.0;2.0;14:30;2004-05-20;https://vfm.com.vn/quy-dau-tu-chung-khoan-viet-nam-vfmvf1/vf1-thong-tin-ve-quy/;9ddbbf07b2d0
+2026-10-27;VFMVF4;QUỸ ĐẦU TƯ CỔ PHIẾU TẬP TRUNG CỔ TỨC DC;DCDE;DCVFM;STOCK;Quỹ mở;Trung bình-Cao;1.93;100000.0;10.0;2.0;14:30;2008-02-28;https://vfm.com.vn/quy-dau-tu-doanh-nghiep-hang-dau-viet-nam-vfmvf4/vf4-thong-tin-ve-quy-mo/;e4a87e4f858f
+2026-10-27;VFMVFB;QUỸ ĐẦU TƯ TRÁI PHIẾU DC;DCBF;DCVFM;BOND;Quỹ mở;Thấp;1.2;100000.0;10.0;5.0;14:30;2013-06-10;https://vfm.com.vn/quy-dau-tu-trai-phieu-viet-nam-vfmvfb/vfb-thong-tin-ve-quy-mo/;3e97e31e33fa
+2026-10-27;VFMVFC;QUỸ ĐẦU TƯ TRÁI PHIẾU GIA TĂNG THU NHẬP CỐ ĐỊNH DC;DCIP;DCVFM;BOND;Quỹ mở;Thấp;1.2;100000.0;10.0;1.0;14:30;2021-05-24;https://dragoncapital.com.vn/quy-dau-tu-trai-phieu-gia-tang-thu-nhap-co-dinh-dc-dcip/dcip-thong-tin-quy/;ca85a630dac9
+2026-10-27;VIBF;QUỸ ĐẦU TƯ CÂN BẰNG GẮN KẾT VINACAPITAL;VIBF;VINACAPITAL;BALANCED;Quỹ mở;Trung bình;1.75;100000.0;10.0;4.0;14:40;2019-07-02;https://wm.vinacapital.com/quy-dau-tu-can-bang-tue-sang-vinacapital-vibf;8ef7295ca2a1
+2026-10-27;VLBF;QUỸ ĐẦU TƯ TRÁI PHIẾU THANH KHOẢN VINACAPITAL;VLBF;VINACAPITAL;BOND;Quỹ mở;Thấp - Trung bình;0.9;500.0;;5.0;14:40;2021-08-13;https://wm.vinacapital.com/quy-dau-tu-trai-phieu-thanh-khoan-vlbf;fbdb6165764f
+2026-10-27;VLGF;QUỸ ĐẦU TƯ TĂNG TRƯỞNG DÀI HẠN VIỆT NAM;VLGF;SSIAM;STOCK;Quỹ mở;Trung bình;1.5;10000.0;2.0;5.0;14:40;2021-11-16;https://www.ssi.com.vn/ssiam/thong-tin-chung-quy-vlgf;07a922e478ab
+2026-10-27;VMPF;QUỸ ĐẦU TƯ CỔ PHIẾU KINH TẾ HIỆN ĐẠI VINACAPITAL;VMEEF;VINACAPITAL;STOCK;Quỹ mở;Trung bình-Cao;1.75;100000.0;10.0;3.0;14:40;2023-04-11;https://mio.vinacapital.com/home;84a39702f474
+2026-10-27;VNDAF;QUỸ ĐẦU TƯ CHỦ ĐỘNG VND;VNDAF;IPA PARTNER;STOCK;Quỹ mở;Trung bình;1.5;100000.0;10.0;3.0;14:45;2018-01-12;https://ipaam.com.vn/vi/quy-mo/quy-mo-co-phieu-vndaf/gioi-thieu-quy-mo-vndaf/;d7022eac84fd
+2026-10-27;VNDBF;QUỸ ĐẦU TƯ TRÁI PHIẾU VND;VNDBF;IPA PARTNER;BOND;Quỹ mở;Thấp;1.1;100000.0;10.0;3.0;14:45;2019-07-05;https://ipaam.com.vn/vi/quy-mo/quy-mo-trai-phieu-vndbf/gioi-thieu-quy-mo-trai-phieu-vndbf/;e89f10020985
+2026-10-27;VNDCF;QUỸ ĐẦU TƯ TRÁI PHIẾU LINH HOẠT VND;VNDCF;IPA PARTNER;BOND;Quỹ mở;Thấp;0.9;100000.0;10.0;1.0;14:45;2023-08-04;https://ipaam.com.vn/vi/quy-mo/quy-trai-phieu-linh-hoat-vndcf/gioi-thieu-quy-dau-tu-vndcf/;14a6b023f171

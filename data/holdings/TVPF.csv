@@ -1,0 +1,11 @@
+observed_date;fund;ticker;weight;rank;volume;price_k;asset_value;industry;update_date;content_hash
+2026-10-27;TVPF;MBB;0.121;1;;19.55;;Ngân hàng;2026-10-13;4556f0c5a8a3
+2026-10-27;TVPF;HCM;0.078;2;;24.1;;Chứng khoán;2026-10-13;4556f0c5a8a3
+2026-10-27;TVPF;FPT;0.058;3;;55.6;;Công nghệ và thông tin;2026-10-13;4556f0c5a8a3
+2026-10-27;TVPF;STB;0.057;4;;67.5;;Ngân hàng;2026-10-13;4556f0c5a8a3
+2026-10-27;TVPF;TCB;0.047;5;;33.5;;Ngân hàng;2026-10-13;4556f0c5a8a3
+2026-10-27;TVPF;MSN;0.043;6;;73.2;;Thực phẩm - Đồ uống;2026-10-13;4556f0c5a8a3
+2026-10-27;TVPF;HPG;0.042;7;;21.1;;Vật liệu xây dựng;2026-10-13;4556f0c5a8a3
+2026-10-27;TVPF;MWG;0.041;8;;75.5;;Bán lẻ;2026-10-13;4556f0c5a8a3
+2026-10-27;TVPF;GMD;0.04;9;;54.0;;Vận tải - Kho bãi;2026-10-13;4556f0c5a8a3
+2026-10-27;TVPF;SSI;0.039;10;;19.85;;Chứng khoán;2026-10-13;4556f0c5a8a3

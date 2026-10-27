@@ -1,0 +1,4 @@
+observed_date;fund;ticker;weight;rank;volume;price_k;asset_value;industry;update_date;content_hash
+2026-10-27;MBBOND;NVL122001;0.6429;1;1733333.0;;173425776524.0;Bất động sản;2026-10-08;7a225b11727b
+2026-10-27;MBBOND;VDS12504;0.0556;2;150.0;;14999999952.0;Chứng khoán;2026-10-08;7a225b11727b
+2026-10-27;MBBOND;NLG12501;0.0037;3;10.0;;995442590.0;Bất động sản;2026-10-08;7a225b11727b

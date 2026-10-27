@@ -1,0 +1,4 @@
+observed_date;fund;ticker;weight;rank;volume;price_k;asset_value;industry;update_date;content_hash
+2026-10-27;VCBFTBF;MSN123010;0.0374;1;300000.0;;30228127800.0;Thực phẩm - Đồ uống;2026-10-08;9096b2a64fc3
+2026-10-27;VCBFTBF;CTD126006;0.037;2;299004.0;;29900568040.0;Xây dựng;2026-10-08;9096b2a64fc3
+2026-10-27;VCBFTBF;MSN123008;0.0274;3;220000.0;;22158225540.0;Thực phẩm - Đồ uống;2026-10-08;9096b2a64fc3

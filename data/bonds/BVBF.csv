@@ -1,0 +1,4 @@
+observed_date;fund;ticker;weight;rank;volume;price_k;asset_value;industry;update_date;content_hash
+2026-10-27;BVBF;NAB125004;0.0977;1;175000.0;;17518962328.0;Ngân hàng;2026-10-08;fc19e8eba47f
+2026-10-27;BVBF;SHB125010;0.09;2;160000.0;;16128276161.0;Ngân hàng;2026-10-08;fc19e8eba47f
+2026-10-27;BVBF;VBA124019;0.0789;3;129720.0;;14150628057.0;Ngân hàng;2026-10-08;fc19e8eba47f
