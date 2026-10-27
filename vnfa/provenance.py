@@ -187,6 +187,86 @@ def observations_from_frame(frame: pd.DataFrame, *, dataset: str, fund: str | No
     return records
 
 
+def make_nav_history_summary_observation(
+    frame: pd.DataFrame | None,
+    *,
+    fund: str | None,
+    source: str,
+    source_reference: str | None,
+    observed_at: str | None,
+    published_at: str | None = None,
+    observed_date: str | None = None,
+    observed_date_basis: str | None = None,
+    run_id: str | None = None,
+    data_quality_status: str = "partial",
+    verification_status: str = "source_returned_unverified",
+    quality_flags: list[str] | None = None,
+    coverage_type: str = "history_endpoint_summary",
+    extra_payload: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Build one compact provenance summary row per (fund, fetch window) for NAV history.
+
+    Full NAV point series remain materialized in `data/nav.csv` without loss; the
+    provenance ledger stores point count, date bounds, endpoint NAV values, and a
+    deterministic SHA-256 over the sorted `(date;nav)` series so Git history stays bounded.
+    """
+    if frame is None or frame.empty:
+        return None
+    if not {"date", "nav"}.issubset(frame.columns):
+        raise ValueError("Cannot build nav_history summary provenance; columns date/nav required")
+    clean = frame[["date", "nav"]].copy()
+    clean["date"] = pd.to_datetime(clean["date"], errors="raise").dt.strftime("%Y-%m-%d")
+    clean["nav"] = pd.to_numeric(clean["nav"], errors="raise")
+    clean = clean.drop_duplicates("date", keep="last").sort_values("date", kind="stable").reset_index(drop=True)
+    if clean.empty:
+        return None
+
+    point_count = int(len(clean))
+    first_date = str(clean["date"].iloc[0])
+    last_date = str(clean["date"].iloc[-1])
+    first_nav = float(clean["nav"].iloc[0])
+    last_nav = float(clean["nav"].iloc[-1])
+    min_nav = float(clean["nav"].min())
+    max_nav = float(clean["nav"].max())
+    canonical_series = "\n".join(
+        f"{d};{round(float(v), 8):.8f}" for d, v in zip(clean["date"], clean["nav"])
+    )
+    series_sha256 = hashlib.sha256(canonical_series.encode("utf-8")).hexdigest()
+    payload: dict[str, Any] = {
+        "summary_version": 1,
+        "granularity": "fund_fetch_summary",
+        "point_count": point_count,
+        "first_date": first_date,
+        "last_date": last_date,
+        "first_nav": first_nav,
+        "last_nav": last_nav,
+        "min_nav": min_nav,
+        "max_nav": max_nav,
+        "series_sha256": series_sha256,
+    }
+    if extra_payload:
+        payload.update(extra_payload)
+    record_key = f"summary:{first_date}..{last_date}:n={point_count}"
+    return make_observation(
+        dataset="nav_history",
+        fund=fund,
+        record_key=record_key,
+        payload=payload,
+        source=source,
+        source_reference=source_reference,
+        observed_at=observed_at,
+        effective_date=last_date,
+        published_at=published_at,
+        observed_date=observed_date,
+        observed_date_basis=observed_date_basis,
+        run_id=run_id,
+        data_quality_status=data_quality_status,
+        verification_status=verification_status,
+        quality_flags=quality_flags,
+        coverage_type=coverage_type,
+    )
+
+
 class ProvenanceStore:
     """Append-only CSV store for source attempts, normalized observations, and quality."""
 

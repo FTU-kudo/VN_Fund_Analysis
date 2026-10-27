@@ -430,3 +430,128 @@ def test_csv_preserves_na_nan_identifiers_and_tablestore_float_hash(tmp_path):
     ]})
     assert parsed.pct.iloc[0] == 0.2098
     assert ts.append_if_changed("allocation", "F1", parsed, "2026-10-02") == "unchanged"
+
+
+def test_backfill_safety_gate_dry_run_and_idempotency(tmp_path, monkeypatch):
+    import importlib.util
+    import json
+    import sys
+    import pytest
+    from vnfa.provenance import ProvenanceStore
+
+    spec = importlib.util.spec_from_file_location("backfill_stage_test", "scripts/backfill_hat_ccq.py")
+    backfill = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(backfill)
+
+    repo = tmp_path / "mirror"
+    repo.mkdir()
+    details_by_sha = {
+        "sha1": [{
+            "id": 1, "code": "F1", "nav": 10000, "owner": {"shortName": "CO"},
+            "assetType": {"code": "STOCK"},
+            "topHoldings": [{"stockCode": "AAA", "netAssetPercent": 6.0, "volume": 100, "price": 10, "assetValue": 1000, "type": "STOCK"}],
+            "productTopHoldingBondList": [{"stockCode": "BD1", "netAssetPercent": 4.0, "volume": 50, "assetValue": 500}],
+        }],
+        # sha2 only changes price (not ticker/weight/volume) -> content_hash unchanged, must NOT duplicate provenance!
+        "sha2": [{
+            "id": 1, "code": "F1", "nav": 10000, "owner": {"shortName": "CO"},
+            "assetType": {"code": "STOCK"},
+            "topHoldings": [{"stockCode": "AAA", "netAssetPercent": 6.0, "volume": 100, "price": 12, "assetValue": 1200, "type": "STOCK"}],
+            "productTopHoldingBondList": [{"stockCode": "BD1", "netAssetPercent": 4.0, "volume": 50, "assetValue": 500}],
+        }],
+    }
+    monkeypatch.setattr(backfill, "git", lambda _r, *args, **_kw:
+                        b"sha1 2026-05-16\nsha2 2026-05-17\n" if args and args[0] == "log" else b"")
+    monkeypatch.setattr(backfill, "commit_details", lambda _r, sha: details_by_sha[sha])
+
+    # Default safety gate blocks publishing directly into repo data/ without explicit authorization.
+    monkeypatch.setattr(sys, "argv", ["backfill_hat_ccq.py", "--src", str(repo), "--data-dir", str(backfill.ROOT / "data")])
+    with pytest.raises(SystemExit, match="CHẶN AN TOÀN"):
+        backfill.main()
+
+    # --dry-run writes zero files even on a fresh staging target.
+    stage_dir = tmp_path / "stage_data"
+    manifest_dry = tmp_path / "dry_manifest.json"
+    monkeypatch.setattr(sys, "argv", ["backfill_hat_ccq.py", "--src", str(repo), "--data-dir", str(stage_dir),
+                                      "--dry-run", "--manifest-out", str(manifest_dry)])
+    backfill.main()
+    assert not stage_dir.exists()
+    dry_meta = json.loads(manifest_dry.read_text(encoding="utf-8"))
+    assert dry_meta["dry_run"] is True and dry_meta["provenance_appended"] == 0
+
+    # Pass 1 on staging writes cleanly; Pass 2 is 100% idempotent (0 new provenance, 0 duplicate rows).
+    m1, m2 = tmp_path / "m1.json", tmp_path / "m2.json"
+    monkeypatch.setattr(sys, "argv", ["backfill_hat_ccq.py", "--src", str(repo), "--data-dir", str(stage_dir),
+                                      "--manifest-out", str(m1)])
+    backfill.main()
+    obs = ProvenanceStore(stage_dir, write=False).read_observations()
+    assert len(obs[obs.dataset == "fund_holdings"]) == 1  # sha2 price-only change deduplicated via content_hash
+    assert len(obs[obs.dataset == "fund_bond_holdings"]) == 1
+    q = ProvenanceStore(stage_dir, write=False).read_quality_reports()
+    assert {"fund_holdings", "fund_bond_holdings", "nav_snapshots"}.issubset(set(q.dataset))
+
+    monkeypatch.setattr(sys, "argv", ["backfill_hat_ccq.py", "--src", str(repo), "--data-dir", str(stage_dir),
+                                      "--manifest-out", str(m2)])
+    backfill.main()
+    meta1 = json.loads(m1.read_text(encoding="utf-8"))
+    meta2 = json.loads(m2.read_text(encoding="utf-8"))
+    assert meta2["provenance_appended"] == 0
+    assert meta1["file_sha256"]["holdings/F1.csv"] == meta2["file_sha256"]["holdings/F1.csv"]
+    assert meta1["file_sha256"]["nav_snapshots.csv"] == meta2["file_sha256"]["nav_snapshots.csv"]
+    assert meta1["file_sha256"]["research_observations.csv"] == meta2["file_sha256"]["research_observations.csv"]
+
+
+def test_reaction_report_separates_nav_and_snapshots_and_preserves_na_flow(tmp_path, monkeypatch):
+    import importlib.util
+    import sys
+    spec = importlib.util.spec_from_file_location("analyze_reaction_sep", "scripts/analyze_reaction.py")
+    ar = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ar)
+
+    pd.DataFrame([{"code": "F1", "asset_code": "STOCK", "mgmt_co": "CO"}]).to_csv(
+        tmp_path / "funds.csv", sep=";", index=False)
+    # 361-day gap between nav.csv (2025-10-31) and nav_snapshots.csv (2026-10-27) must NEVER be stitched!
+    pd.DataFrame([
+        {"fund": "F1", "date": "2025-10-24", "nav": 10000},
+        {"fund": "F1", "date": "2025-10-31", "nav": 10200},
+    ]).to_csv(tmp_path / "nav.csv", sep=";", index=False)
+    pd.DataFrame([
+        {"fund": "F1", "date": "2026-10-27", "nav": 13000},
+    ]).to_csv(tmp_path / "nav_snapshots.csv", sep=";", index=False)
+    pd.DataFrame([
+        {"observed_date": "2026-10-27", "fund": "F1", "ticker": "AAA", "action": "BUY",
+         "basis": "volume", "est_value_vnd": np.nan, "asset_class": "STOCK"},
+    ]).to_csv(tmp_path / "changes.csv", sep=";", index=False)
+
+    out = tmp_path / "reaction_gap.md"
+    monkeypatch.setattr(sys, "argv", ["analyze_reaction.py", "--data-dir", str(tmp_path),
+                                      "--peak", "2025-10-25", "--out", str(out)])
+    ar.main()
+    text = out.read_text(encoding="utf-8")
+    assert "1A. Chuỗi NAV lịch sử (`nav.csv`)" in text
+    assert "1B. Chuỗi NAV quan sát hằng ngày (`nav_snapshots.csv`)" in text
+    assert "+30.0%" not in text  # 13000/10000 across 361-day hole is NOT computed
+    assert "| 2026-10 | 1 | 0 | NA | NA | NA | 100.0% |" in text
+
+
+def test_export_holdings_long_complete_top10_and_inferred_publish_date(tmp_path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("export_long_test", "scripts/export_holdings_long.py")
+    exp = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(exp)
+
+    s = Store(tmp_path)
+    s.upsert_funds([
+        {"code": "F10", "mgmt_co": "CO1", "asset_code": "STOCK"},
+        {"code": "NA", "mgmt_co": "CO2", "asset_code": "STOCK"},
+    ], "2026-10-27")
+    s.append_if_changed("F10", H([(f"T{i:02d}", 0.05, 100, 10, 1e6) for i in range(10)]), "2026-10-27")
+    s.append_if_changed("NA", H([("NA", 0.08, 100, 10, 1e6), ("BBB", 0.07, 100, 10, 1e6)]), "2026-10-27")
+
+    out_csv = tmp_path / "exports" / "holdings_long.csv"
+    df = exp.export_long(tmp_path, out_csv)
+    assert len(df) == 12
+    assert df[df.fund == "F10"].complete_top10.all()
+    assert not df[df.fund == "NA"].complete_top10.any()
+    assert df.publish_date_inferred.all()
+    assert set(df.publish_date_basis) == {"observed_date_proxy_not_official_publication"}
