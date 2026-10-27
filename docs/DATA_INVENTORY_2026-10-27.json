@@ -1,23 +1,118 @@
 {
   "inventory_version": "1",
-  "generated_at": "2026-10-27T11:10:58+07:00",
+  "generated_at": "2026-10-27T15:14:56+07:00",
   "reference_date": "2026-10-27",
   "data_directory": "data",
-  "data_directory_exists": false,
-  "repository_data_files": 0,
+  "data_directory_exists": true,
+  "repository_data_files": 89,
   "summary": {
     "datasets_expected": 15,
-    "datasets_available": 0,
-    "datasets_missing": 15,
+    "datasets_available": 12,
+    "datasets_missing": 3,
+    "datasets_stale": 1,
     "datasets_with_schema_or_read_issues": 0,
-    "csv_rows_observed": 0,
-    "funds_observed_across_tables": 0,
+    "csv_rows_observed": 51980,
+    "funds_observed_across_tables": 69,
     "unclassified_csv_files": []
   },
+  "freshness_policy": {
+    "enabled": true,
+    "thresholds_days": {
+      "fund_holdings": 45,
+      "fund_bond_holdings": 45,
+      "allocation": 45,
+      "nav_snapshots": 3,
+      "fees": 180
+    }
+  },
   "source_coverage": {
-    "status": "not_recorded",
-    "event_count": 0,
-    "note": "No persisted source diagnostics/requests were found; live connectivity is unverified."
+    "status": "recorded",
+    "event_count": 139,
+    "providers": {
+      "fmarket": 139
+    },
+    "endpoints": {
+      "POST /product/get-nav-history": 69,
+      "POST /products/filter": 1,
+      "GET /products/65": 1,
+      "GET /products/96": 1,
+      "GET /products/115": 1,
+      "GET /products/51": 1,
+      "GET /products/87": 1,
+      "GET /products/13": 1,
+      "GET /products/12": 1,
+      "GET /products/14": 1,
+      "GET /products/29": 1,
+      "GET /products/118": 1,
+      "GET /products/30": 1,
+      "GET /products/81": 1,
+      "GET /products/89": 1,
+      "GET /products/92": 1,
+      "GET /products/69": 1,
+      "GET /products/62": 1,
+      "GET /products/86": 1,
+      "GET /products/114": 1,
+      "GET /products/64": 1,
+      "GET /products/76": 1,
+      "GET /products/93": 1,
+      "GET /products/97": 1,
+      "GET /products/71": 1,
+      "GET /products/72": 1,
+      "GET /products/50": 1,
+      "GET /products/35": 1,
+      "GET /products/88": 1,
+      "GET /products/48": 1,
+      "GET /products/47": 1,
+      "GET /products/77": 1,
+      "GET /products/61": 1,
+      "GET /products/66": 1,
+      "GET /products/45": 1,
+      "GET /products/83": 1,
+      "GET /products/8": 1,
+      "GET /products/90": 1,
+      "GET /products/116": 1,
+      "GET /products/11": 1,
+      "GET /products/41": 1,
+      "GET /products/79": 1,
+      "GET /products/52": 1,
+      "GET /products/117": 1,
+      "GET /products/91": 1,
+      "GET /products/78": 1,
+      "GET /products/58": 1,
+      "GET /products/113": 1,
+      "GET /products/70": 1,
+      "GET /products/75": 1,
+      "GET /products/63": 1,
+      "GET /products/82": 1,
+      "GET /products/32": 1,
+      "GET /products/33": 1,
+      "GET /products/46": 1,
+      "GET /products/31": 1,
+      "GET /products/80": 1,
+      "GET /products/20": 1,
+      "GET /products/23": 1,
+      "GET /products/21": 1,
+      "GET /products/28": 1,
+      "GET /products/25": 1,
+      "GET /products/27": 1,
+      "GET /products/67": 1,
+      "GET /products/22": 1,
+      "GET /products/53": 1,
+      "GET /products/49": 1,
+      "GET /products/68": 1,
+      "GET /products/38": 1,
+      "GET /products/37": 1,
+      "GET /products/40": 1
+    },
+    "outcomes": {
+      "success": 129,
+      "empty_response": 10
+    },
+    "last_completed_at": "2026-10-27T06:37:47.012561Z",
+    "http_status_counts": {
+      "200": 139
+    },
+    "fund_code_recorded_count": 0
   },
   "limitations": [
     "Inventory describes files present at generation time; it does not represent current live Fmarket coverage.",
@@ -27,16 +122,8 @@
   ],
   "prioritized_next_steps": [
     {
-      "priority": "P0",
-      "action": "Create/restore the data archive and run a small approved collection; inventory found no existing CSV observations."
-    },
-    {
-      "priority": "P1",
-      "action": "Run the classified source diagnostic from an environment allowed to reach Fmarket; check terms/rate limits separately."
-    },
-    {
-      "priority": "P1",
-      "action": "Start collecting exact observed_at/ingested_at and leave unknown published_at blank; exclude timestamp-unknown records from PIT analyses."
+      "priority": "P2",
+      "action": "Populate only datasets needed for research; preserve missingness and report per-source coverage rather than filling gaps."
     },
     {
       "priority": "P2",
@@ -49,105 +136,1994 @@
   ],
   "datasets": {
     "fund_metadata": {
-      "status": "missing",
-      "paths": [],
-      "file_count": 0,
-      "row_count": 0,
-      "file_bytes": 0,
-      "columns": [],
+      "status": "available",
+      "paths": [
+        "funds.csv"
+      ],
+      "file_count": 1,
+      "row_count": 69,
+      "file_bytes": 3101,
+      "columns": [
+        "asset_code",
+        "code",
+        "last_seen",
+        "management_fee",
+        "mgmt_co",
+        "short_name"
+      ],
       "schema_consistent": true,
       "missing_required_columns": [],
-      "fund_count": 0,
-      "date_coverage": {},
+      "fund_count": 69,
+      "date_coverage": {
+        "last_seen": {
+          "coverage_count": 69,
+          "row_count_with_column": 69,
+          "coverage": 1.0,
+          "first": "2026-10-27T00:00:00+00:00",
+          "last": "2026-10-27T00:00:00+00:00",
+          "age_days_reference_date": 0,
+          "future_date_count": 0
+        }
+      },
+      "freshness": {
+        "assessment": "not_assessed_no_sla",
+        "sla_days": null,
+        "age_days": null,
+        "date_basis": null
+      },
       "quality": {
         "dataset": "fund_metadata",
-        "status": "not_applicable",
-        "row_count": 0,
+        "status": "valid",
+        "row_count": 69,
         "errors": [],
         "warnings": [],
-        "metrics": {}
+        "structural_warnings": [],
+        "anomaly_warnings": [],
+        "metrics": {
+          "validation_groups": 1
+        }
       },
-      "files": []
+      "files": [
+        {
+          "status": "read",
+          "row_count": 69,
+          "columns": [
+            "code",
+            "short_name",
+            "mgmt_co",
+            "asset_code",
+            "management_fee",
+            "last_seen"
+          ],
+          "bytes": 3101,
+          "path": "funds.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        }
+      ]
     },
     "fund_holdings": {
-      "status": "missing",
-      "paths": [],
-      "file_count": 0,
-      "row_count": 0,
-      "file_bytes": 0,
-      "columns": [],
+      "status": "available",
+      "paths": [
+        "holdings/ABEF.csv",
+        "holdings/AEIF.csv",
+        "holdings/BMFF.csv",
+        "holdings/BVFED.csv",
+        "holdings/BVPF.csv",
+        "holdings/DCAF.csv",
+        "holdings/DCBA.csv",
+        "holdings/ENF.csv",
+        "holdings/EVESG.csv",
+        "holdings/GDEGF.csv",
+        "holdings/HDBOND.csv",
+        "holdings/KDEF.csv",
+        "holdings/LHCDF.csv",
+        "holdings/LPLF.csv",
+        "holdings/MAFBAL.csv",
+        "holdings/MAFEQI.csv",
+        "holdings/MAGEF.csv",
+        "holdings/MBVF.csv",
+        "holdings/MDI.csv",
+        "holdings/PBIF.csv",
+        "holdings/PHVSF.csv",
+        "holdings/RVPF24.csv",
+        "holdings/SSIEF.csv",
+        "holdings/SSIPDF.csv",
+        "holdings/SSISCA.csv",
+        "holdings/TBLF.csv",
+        "holdings/TCGF.csv",
+        "holdings/TVPF.csv",
+        "holdings/UVDIF.csv",
+        "holdings/UVEEF.csv",
+        "holdings/VBIF.csv",
+        "holdings/VCAMBF.csv",
+        "holdings/VCAMDF.csv",
+        "holdings/VCBFAIF.csv",
+        "holdings/VCBFBCF.csv",
+        "holdings/VCBFMGF.csv",
+        "holdings/VCBFTBF.csv",
+        "holdings/VDEF.csv",
+        "holdings/VEOF.csv",
+        "holdings/VESAF.csv",
+        "holdings/VFMVF1.csv",
+        "holdings/VFMVF4.csv",
+        "holdings/VIBF.csv",
+        "holdings/VLGF.csv",
+        "holdings/VMPF.csv",
+        "holdings/VNDAF.csv"
+      ],
+      "file_count": 46,
+      "row_count": 407,
+      "file_bytes": 44247,
+      "columns": [
+        "asset_value",
+        "content_hash",
+        "fund",
+        "industry",
+        "observed_date",
+        "price_k",
+        "rank",
+        "ticker",
+        "update_date",
+        "volume",
+        "weight"
+      ],
       "schema_consistent": true,
       "missing_required_columns": [],
-      "fund_count": 0,
+      "fund_count": 46,
       "date_coverage": {
         "observed_date": {
-          "coverage_count": 0,
-          "row_count_with_column": 0,
-          "coverage": 0.0,
-          "first": null,
-          "last": null,
-          "age_days_reference_date": null,
+          "coverage_count": 407,
+          "row_count_with_column": 407,
+          "coverage": 1.0,
+          "first": "2026-10-27T00:00:00+00:00",
+          "last": "2026-10-27T00:00:00+00:00",
+          "age_days_reference_date": 0,
           "future_date_count": 0
         },
         "update_date": {
-          "coverage_count": 0,
-          "row_count_with_column": 0,
-          "coverage": 0.0,
-          "first": null,
-          "last": null,
-          "age_days_reference_date": null,
+          "coverage_count": 407,
+          "row_count_with_column": 407,
+          "coverage": 1.0,
+          "first": "2026-10-08T00:00:00+00:00",
+          "last": "2026-10-14T00:00:00+00:00",
+          "age_days_reference_date": 13,
           "future_date_count": 0
         }
+      },
+      "freshness": {
+        "assessment": "within_sla",
+        "sla_days": 45,
+        "age_days": 13,
+        "date_basis": "update_date"
       },
       "quality": {
         "dataset": "fund_holdings",
-        "status": "not_applicable",
-        "row_count": 0,
+        "status": "partial",
+        "row_count": 407,
         "errors": [],
-        "warnings": [],
-        "metrics": {}
+        "warnings": [
+          {
+            "code": "censored_top_n",
+            "severity": "warning",
+            "message": "Top-N disclosure is not a complete fund portfolio",
+            "count": 407
+          },
+          {
+            "code": "missing_volume",
+            "severity": "warning",
+            "message": "volume is missing; it is not treated as zero",
+            "count": 10
+          },
+          {
+            "code": "missing_asset_value",
+            "severity": "warning",
+            "message": "asset_value is missing; it is not treated as zero",
+            "count": 10
+          }
+        ],
+        "structural_warnings": [
+          {
+            "code": "censored_top_n",
+            "severity": "warning",
+            "message": "Top-N disclosure is not a complete fund portfolio",
+            "count": 407
+          }
+        ],
+        "anomaly_warnings": [
+          {
+            "code": "missing_volume",
+            "severity": "warning",
+            "message": "volume is missing; it is not treated as zero",
+            "count": 10
+          },
+          {
+            "code": "missing_asset_value",
+            "severity": "warning",
+            "message": "asset_value is missing; it is not treated as zero",
+            "count": 10
+          }
+        ],
+        "metrics": {
+          "validation_groups": 46
+        }
       },
-      "files": []
+      "files": [
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1058,
+          "path": "holdings/ABEF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1080,
+          "path": "holdings/AEIF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 8,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 883,
+          "path": "holdings/BMFF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1070,
+          "path": "holdings/BVFED.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1053,
+          "path": "holdings/BVPF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1061,
+          "path": "holdings/DCAF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1025,
+          "path": "holdings/DCBA.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1034,
+          "path": "holdings/ENF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1073,
+          "path": "holdings/EVESG.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1095,
+          "path": "holdings/GDEGF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 2,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 299,
+          "path": "holdings/HDBOND.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1050,
+          "path": "holdings/KDEF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1085,
+          "path": "holdings/LHCDF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1089,
+          "path": "holdings/LPLF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 6,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 679,
+          "path": "holdings/MAFBAL.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1097,
+          "path": "holdings/MAFEQI.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1105,
+          "path": "holdings/MAGEF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 9,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 976,
+          "path": "holdings/MBVF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1064,
+          "path": "holdings/MDI.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 8,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 877,
+          "path": "holdings/PBIF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1067,
+          "path": "holdings/PHVSF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1110,
+          "path": "holdings/RVPF24.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 8,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 851,
+          "path": "holdings/SSIEF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 5,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 608,
+          "path": "holdings/SSIPDF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1099,
+          "path": "holdings/SSISCA.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1105,
+          "path": "holdings/TBLF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 8,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 852,
+          "path": "holdings/TCGF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 872,
+          "path": "holdings/TVPF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 1,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 200,
+          "path": "holdings/UVDIF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1082,
+          "path": "holdings/UVEEF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 2,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 272,
+          "path": "holdings/VBIF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1054,
+          "path": "holdings/VCAMBF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1084,
+          "path": "holdings/VCAMDF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1107,
+          "path": "holdings/VCBFAIF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1115,
+          "path": "holdings/VCBFBCF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1093,
+          "path": "holdings/VCBFMGF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 7,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 817,
+          "path": "holdings/VCBFTBF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1112,
+          "path": "holdings/VDEF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1075,
+          "path": "holdings/VEOF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1083,
+          "path": "holdings/VESAF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1125,
+          "path": "holdings/VFMVF1.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1073,
+          "path": "holdings/VFMVF4.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 5,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 582,
+          "path": "holdings/VIBF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1085,
+          "path": "holdings/VLGF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1076,
+          "path": "holdings/VMPF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 8,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 895,
+          "path": "holdings/VNDAF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        }
+      ],
+      "coverage": {
+        "portfolio_coverage": "top_n_partial_censored",
+        "note": "Top holdings are not the complete portfolio; excluded/lower-ranked securities are unknown."
+      }
     },
     "fund_bond_holdings": {
-      "status": "missing",
-      "paths": [],
-      "file_count": 0,
-      "row_count": 0,
-      "file_bytes": 0,
-      "columns": [],
+      "status": "available",
+      "paths": [
+        "bonds/ABBF.csv",
+        "bonds/ASBF.csv",
+        "bonds/BMFF.csv",
+        "bonds/BVBF.csv",
+        "bonds/DFIX.csv",
+        "bonds/GFMVIF.csv",
+        "bonds/HDBOND.csv",
+        "bonds/KSIF.csv",
+        "bonds/LHBF.csv",
+        "bonds/LHFCF.csv",
+        "bonds/MAFBAL.csv",
+        "bonds/MAFF.csv",
+        "bonds/MBAM.csv",
+        "bonds/MBBOND.csv",
+        "bonds/MBVF.csv",
+        "bonds/PBIF.csv",
+        "bonds/PVBF.csv",
+        "bonds/SSIBF.csv",
+        "bonds/SSIEF.csv",
+        "bonds/SSIPDF.csv",
+        "bonds/USIF.csv",
+        "bonds/UVDIF.csv",
+        "bonds/VBIF.csv",
+        "bonds/VCAMFI.csv",
+        "bonds/VCBFFIF.csv",
+        "bonds/VCBFTBF.csv",
+        "bonds/VFF.csv",
+        "bonds/VFMVFB.csv",
+        "bonds/VFMVFC.csv",
+        "bonds/VIBF.csv",
+        "bonds/VLBF.csv",
+        "bonds/VNDBF.csv",
+        "bonds/VNDCF.csv"
+      ],
+      "file_count": 33,
+      "row_count": 180,
+      "file_bytes": 21476,
+      "columns": [
+        "asset_value",
+        "content_hash",
+        "fund",
+        "industry",
+        "observed_date",
+        "price_k",
+        "rank",
+        "ticker",
+        "update_date",
+        "volume",
+        "weight"
+      ],
       "schema_consistent": true,
       "missing_required_columns": [],
-      "fund_count": 0,
+      "fund_count": 33,
       "date_coverage": {
         "observed_date": {
-          "coverage_count": 0,
-          "row_count_with_column": 0,
-          "coverage": 0.0,
-          "first": null,
-          "last": null,
-          "age_days_reference_date": null,
+          "coverage_count": 180,
+          "row_count_with_column": 180,
+          "coverage": 1.0,
+          "first": "2026-10-27T00:00:00+00:00",
+          "last": "2026-10-27T00:00:00+00:00",
+          "age_days_reference_date": 0,
           "future_date_count": 0
         },
         "update_date": {
-          "coverage_count": 0,
-          "row_count_with_column": 0,
-          "coverage": 0.0,
-          "first": null,
-          "last": null,
-          "age_days_reference_date": null,
+          "coverage_count": 180,
+          "row_count_with_column": 180,
+          "coverage": 1.0,
+          "first": "2026-10-08T00:00:00+00:00",
+          "last": "2026-10-14T00:00:00+00:00",
+          "age_days_reference_date": 13,
           "future_date_count": 0
         }
       },
+      "freshness": {
+        "assessment": "within_sla",
+        "sla_days": 45,
+        "age_days": 13,
+        "date_basis": "update_date"
+      },
       "quality": {
         "dataset": "fund_bond_holdings",
-        "status": "not_applicable",
-        "row_count": 0,
+        "status": "partial",
+        "row_count": 180,
         "errors": [],
-        "warnings": [],
-        "metrics": {}
+        "warnings": [
+          {
+            "code": "censored_top_n",
+            "severity": "warning",
+            "message": "Top-N disclosure is not a complete fund portfolio",
+            "count": 180
+          }
+        ],
+        "structural_warnings": [
+          {
+            "code": "censored_top_n",
+            "severity": "warning",
+            "message": "Top-N disclosure is not a complete fund portfolio",
+            "count": 180
+          }
+        ],
+        "anomaly_warnings": [],
+        "metrics": {
+          "validation_groups": 33
+        }
       },
-      "files": []
+      "files": [
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1128,
+          "path": "bonds/ABBF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 2,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 302,
+          "path": "bonds/ASBF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 2,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 296,
+          "path": "bonds/BMFF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 3,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 382,
+          "path": "bonds/BVBF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 6,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 653,
+          "path": "bonds/DFIX.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 7,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 803,
+          "path": "bonds/GFMVIF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 8,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 942,
+          "path": "bonds/HDBOND.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 4,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 497,
+          "path": "bonds/KSIF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1089,
+          "path": "bonds/LHBF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 6,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 684,
+          "path": "bonds/LHFCF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 4,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 522,
+          "path": "bonds/MAFBAL.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1094,
+          "path": "bonds/MAFF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 4,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 488,
+          "path": "bonds/MBAM.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 3,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 400,
+          "path": "bonds/MBBOND.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 1,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 196,
+          "path": "bonds/MBVF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 2,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 310,
+          "path": "bonds/PBIF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 3,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 408,
+          "path": "bonds/PVBF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 2,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 310,
+          "path": "bonds/SSIBF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 2,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 312,
+          "path": "bonds/SSIEF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 2,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 310,
+          "path": "bonds/SSIPDF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 9,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 999,
+          "path": "bonds/USIF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 9,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 992,
+          "path": "bonds/UVDIF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 4,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 474,
+          "path": "bonds/VBIF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 7,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 789,
+          "path": "bonds/VCAMFI.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1146,
+          "path": "bonds/VCBFFIF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 3,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 426,
+          "path": "bonds/VCBFTBF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1131,
+          "path": "bonds/VFF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 8,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 948,
+          "path": "bonds/VFMVFB.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 5,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 627,
+          "path": "bonds/VFMVFC.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 5,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 622,
+          "path": "bonds/VIBF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 4,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 501,
+          "path": "bonds/VLBF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 10,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 1101,
+          "path": "bonds/VNDBF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        },
+        {
+          "status": "read",
+          "row_count": 5,
+          "columns": [
+            "observed_date",
+            "fund",
+            "ticker",
+            "weight",
+            "rank",
+            "volume",
+            "price_k",
+            "asset_value",
+            "industry",
+            "update_date",
+            "content_hash"
+          ],
+          "bytes": 594,
+          "path": "bonds/VNDCF.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        }
+      ]
     },
     "full_holdings": {
       "status": "missing",
@@ -179,12 +2155,20 @@
           "future_date_count": 0
         }
       },
+      "freshness": {
+        "assessment": "not_assessed_no_sla",
+        "sla_days": null,
+        "age_days": null,
+        "date_basis": null
+      },
       "quality": {
         "dataset": "full_holdings",
         "status": "not_applicable",
         "row_count": 0,
         "errors": [],
         "warnings": [],
+        "structural_warnings": [],
+        "anomaly_warnings": [],
         "metrics": {}
       },
       "files": []
@@ -210,171 +2194,456 @@
           "future_date_count": 0
         }
       },
+      "freshness": {
+        "assessment": "not_assessed_no_sla",
+        "sla_days": null,
+        "age_days": null,
+        "date_basis": null
+      },
       "quality": {
         "dataset": "changes",
         "status": "not_applicable",
         "row_count": 0,
         "errors": [],
         "warnings": [],
+        "structural_warnings": [],
+        "anomaly_warnings": [],
         "metrics": {}
       },
       "files": []
     },
     "nav_history": {
-      "status": "missing",
-      "paths": [],
-      "file_count": 0,
-      "row_count": 0,
-      "file_bytes": 0,
-      "columns": [],
+      "status": "available",
+      "paths": [
+        "nav.csv"
+      ],
+      "file_count": 1,
+      "row_count": 47121,
+      "file_bytes": 1211653,
+      "columns": [
+        "date",
+        "fund",
+        "nav"
+      ],
       "schema_consistent": true,
       "missing_required_columns": [],
-      "fund_count": 0,
+      "fund_count": 59,
       "date_coverage": {
         "date": {
-          "coverage_count": 0,
-          "row_count_with_column": 0,
-          "coverage": 0.0,
-          "first": null,
-          "last": null,
-          "age_days_reference_date": null,
+          "coverage_count": 47121,
+          "row_count_with_column": 47121,
+          "coverage": 1.0,
+          "first": "2004-05-20T00:00:00+00:00",
+          "last": "2025-10-31T00:00:00+00:00",
+          "age_days_reference_date": 361,
           "future_date_count": 0
         }
+      },
+      "freshness": {
+        "assessment": "not_assessed_no_sla",
+        "sla_days": null,
+        "age_days": 361,
+        "date_basis": "date"
       },
       "quality": {
         "dataset": "nav_history",
-        "status": "not_applicable",
-        "row_count": 0,
+        "status": "valid",
+        "row_count": 47121,
         "errors": [],
         "warnings": [],
-        "metrics": {}
+        "structural_warnings": [],
+        "anomaly_warnings": [],
+        "metrics": {
+          "validation_groups": 1
+        }
       },
-      "files": []
+      "files": [
+        {
+          "status": "read",
+          "row_count": 47121,
+          "columns": [
+            "fund",
+            "date",
+            "nav"
+          ],
+          "bytes": 1211653,
+          "path": "nav.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        }
+      ]
     },
     "nav_snapshots": {
-      "status": "missing",
-      "paths": [],
-      "file_count": 0,
-      "row_count": 0,
-      "file_bytes": 0,
-      "columns": [],
+      "status": "available",
+      "paths": [
+        "nav_snapshots.csv"
+      ],
+      "file_count": 1,
+      "row_count": 69,
+      "file_bytes": 1774,
+      "columns": [
+        "date",
+        "fund",
+        "nav"
+      ],
       "schema_consistent": true,
       "missing_required_columns": [],
-      "fund_count": 0,
+      "fund_count": 69,
       "date_coverage": {
         "date": {
-          "coverage_count": 0,
-          "row_count_with_column": 0,
-          "coverage": 0.0,
-          "first": null,
-          "last": null,
-          "age_days_reference_date": null,
+          "coverage_count": 69,
+          "row_count_with_column": 69,
+          "coverage": 1.0,
+          "first": "2026-10-27T00:00:00+00:00",
+          "last": "2026-10-27T00:00:00+00:00",
+          "age_days_reference_date": 0,
           "future_date_count": 0
         }
+      },
+      "freshness": {
+        "assessment": "within_sla",
+        "sla_days": 3,
+        "age_days": 0,
+        "date_basis": "date"
       },
       "quality": {
         "dataset": "nav_snapshots",
-        "status": "not_applicable",
-        "row_count": 0,
+        "status": "valid",
+        "row_count": 69,
         "errors": [],
-        "warnings": [],
-        "metrics": {}
+        "warnings": [
+          {
+            "code": "effective_date_unknown",
+            "severity": "warning",
+            "message": "Snapshot dates are observation dates; NAV effective dates are not established by this file.",
+            "count": 69
+          }
+        ],
+        "structural_warnings": [
+          {
+            "code": "effective_date_unknown",
+            "severity": "warning",
+            "message": "Snapshot dates are observation dates; NAV effective dates are not established by this file.",
+            "count": 69
+          }
+        ],
+        "anomaly_warnings": [],
+        "metrics": {
+          "validation_groups": 1
+        }
       },
-      "files": []
+      "files": [
+        {
+          "status": "read",
+          "row_count": 69,
+          "columns": [
+            "fund",
+            "date",
+            "nav"
+          ],
+          "bytes": 1774,
+          "path": "nav_snapshots.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        }
+      ]
     },
     "allocation": {
-      "status": "missing",
-      "paths": [],
-      "file_count": 0,
-      "row_count": 0,
-      "file_bytes": 0,
-      "columns": [],
+      "status": "available",
+      "paths": [
+        "allocation.csv"
+      ],
+      "file_count": 1,
+      "row_count": 158,
+      "file_bytes": 12615,
+      "columns": [
+        "asset_code",
+        "asset_name",
+        "content_hash",
+        "fund",
+        "observed_date",
+        "pct",
+        "report_date"
+      ],
       "schema_consistent": true,
       "missing_required_columns": [],
-      "fund_count": 0,
+      "fund_count": 68,
       "date_coverage": {
+        "observed_date": {
+          "coverage_count": 158,
+          "row_count_with_column": 158,
+          "coverage": 1.0,
+          "first": "2026-10-27T00:00:00+00:00",
+          "last": "2026-10-27T00:00:00+00:00",
+          "age_days_reference_date": 0,
+          "future_date_count": 0
+        },
         "report_date": {
-          "coverage_count": 0,
-          "row_count_with_column": 0,
-          "coverage": 0.0,
-          "first": null,
-          "last": null,
-          "age_days_reference_date": null,
+          "coverage_count": 158,
+          "row_count_with_column": 158,
+          "coverage": 1.0,
+          "first": "2026-06-01T00:00:00+00:00",
+          "last": "2026-09-01T00:00:00+00:00",
+          "age_days_reference_date": 56,
           "future_date_count": 0
         }
       },
+      "freshness": {
+        "assessment": "stale",
+        "sla_days": 45,
+        "age_days": 56,
+        "date_basis": "report_date"
+      },
       "quality": {
         "dataset": "allocation",
-        "status": "not_applicable",
-        "row_count": 0,
+        "status": "valid",
+        "row_count": 158,
         "errors": [],
         "warnings": [],
-        "metrics": {}
+        "structural_warnings": [],
+        "anomaly_warnings": [],
+        "metrics": {
+          "validation_groups": 1
+        }
       },
-      "files": []
+      "files": [
+        {
+          "status": "read",
+          "row_count": 158,
+          "columns": [
+            "observed_date",
+            "fund",
+            "asset_code",
+            "asset_name",
+            "pct",
+            "report_date",
+            "content_hash"
+          ],
+          "bytes": 12615,
+          "path": "allocation.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        }
+      ]
     },
     "industry": {
-      "status": "missing",
-      "paths": [],
-      "file_count": 0,
-      "row_count": 0,
-      "file_bytes": 0,
-      "columns": [],
+      "status": "available",
+      "paths": [
+        "industry.csv"
+      ],
+      "file_count": 1,
+      "row_count": 569,
+      "file_bytes": 34577,
+      "columns": [
+        "content_hash",
+        "fund",
+        "industry",
+        "observed_date",
+        "pct"
+      ],
       "schema_consistent": true,
       "missing_required_columns": [],
-      "fund_count": 0,
-      "date_coverage": {},
+      "fund_count": 45,
+      "date_coverage": {
+        "observed_date": {
+          "coverage_count": 569,
+          "row_count_with_column": 569,
+          "coverage": 1.0,
+          "first": "2026-10-27T00:00:00+00:00",
+          "last": "2026-10-27T00:00:00+00:00",
+          "age_days_reference_date": 0,
+          "future_date_count": 0
+        }
+      },
+      "freshness": {
+        "assessment": "not_assessed_no_sla",
+        "sla_days": null,
+        "age_days": 0,
+        "date_basis": "observed_date"
+      },
       "quality": {
         "dataset": "industry",
         "status": "not_applicable",
-        "row_count": 0,
+        "row_count": 569,
         "errors": [],
         "warnings": [],
+        "structural_warnings": [],
+        "anomaly_warnings": [],
         "metrics": {}
       },
-      "files": []
+      "files": [
+        {
+          "status": "read",
+          "row_count": 569,
+          "columns": [
+            "observed_date",
+            "fund",
+            "industry",
+            "pct",
+            "content_hash"
+          ],
+          "bytes": 34577,
+          "path": "industry.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        }
+      ]
     },
     "fees": {
-      "status": "missing",
-      "paths": [],
-      "file_count": 0,
-      "row_count": 0,
-      "file_bytes": 0,
-      "columns": [],
+      "status": "available",
+      "paths": [
+        "fees.csv"
+      ],
+      "file_count": 1,
+      "row_count": 671,
+      "file_bytes": 46415,
+      "columns": [
+        "begin",
+        "content_hash",
+        "end",
+        "fee",
+        "fund",
+        "observed_date",
+        "program",
+        "type",
+        "unit"
+      ],
       "schema_consistent": true,
       "missing_required_columns": [],
-      "fund_count": 0,
-      "date_coverage": {},
+      "fund_count": 69,
+      "date_coverage": {
+        "observed_date": {
+          "coverage_count": 671,
+          "row_count_with_column": 671,
+          "coverage": 1.0,
+          "first": "2026-10-27T00:00:00+00:00",
+          "last": "2026-10-27T00:00:00+00:00",
+          "age_days_reference_date": 0,
+          "future_date_count": 0
+        }
+      },
+      "freshness": {
+        "assessment": "within_sla",
+        "sla_days": 180,
+        "age_days": 0,
+        "date_basis": "observed_date"
+      },
       "quality": {
         "dataset": "fees",
         "status": "not_applicable",
-        "row_count": 0,
+        "row_count": 671,
         "errors": [],
         "warnings": [],
+        "structural_warnings": [],
+        "anomaly_warnings": [],
         "metrics": {}
       },
-      "files": []
+      "files": [
+        {
+          "status": "read",
+          "row_count": 671,
+          "columns": [
+            "observed_date",
+            "fund",
+            "type",
+            "program",
+            "begin",
+            "end",
+            "unit",
+            "fee",
+            "content_hash"
+          ],
+          "bytes": 46415,
+          "path": "fees.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        }
+      ]
     },
     "profile": {
-      "status": "missing",
-      "paths": [],
-      "file_count": 0,
-      "row_count": 0,
-      "file_bytes": 0,
-      "columns": [],
+      "status": "available",
+      "paths": [
+        "profile.csv"
+      ],
+      "file_count": 1,
+      "row_count": 69,
+      "file_bytes": 14422,
+      "columns": [
+        "asset_code",
+        "buy_min_vnd",
+        "content_hash",
+        "cutoff",
+        "first_issue_date",
+        "fund",
+        "fund_type",
+        "management_fee_pct",
+        "mgmt_co",
+        "name",
+        "observed_date",
+        "risk_level",
+        "sell_min_units",
+        "settle_days",
+        "short_name",
+        "website"
+      ],
       "schema_consistent": true,
       "missing_required_columns": [],
-      "fund_count": 0,
-      "date_coverage": {},
+      "fund_count": 69,
+      "date_coverage": {
+        "observed_date": {
+          "coverage_count": 69,
+          "row_count_with_column": 69,
+          "coverage": 1.0,
+          "first": "2026-10-27T00:00:00+00:00",
+          "last": "2026-10-27T00:00:00+00:00",
+          "age_days_reference_date": 0,
+          "future_date_count": 0
+        }
+      },
+      "freshness": {
+        "assessment": "not_assessed_no_sla",
+        "sla_days": null,
+        "age_days": 0,
+        "date_basis": "observed_date"
+      },
       "quality": {
         "dataset": "profile",
         "status": "not_applicable",
-        "row_count": 0,
+        "row_count": 69,
         "errors": [],
         "warnings": [],
+        "structural_warnings": [],
+        "anomaly_warnings": [],
         "metrics": {}
       },
-      "files": []
+      "files": [
+        {
+          "status": "read",
+          "row_count": 69,
+          "columns": [
+            "observed_date",
+            "fund",
+            "name",
+            "short_name",
+            "mgmt_co",
+            "asset_code",
+            "fund_type",
+            "risk_level",
+            "management_fee_pct",
+            "buy_min_vnd",
+            "sell_min_units",
+            "settle_days",
+            "cutoff",
+            "first_issue_date",
+            "website",
+            "content_hash"
+          ],
+          "bytes": 14422,
+          "path": "profile.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        }
+      ]
     },
     "performance": {
       "status": "missing",
@@ -387,60 +2656,147 @@
       "missing_required_columns": [],
       "fund_count": 0,
       "date_coverage": {},
+      "freshness": {
+        "assessment": "not_assessed_no_sla",
+        "sla_days": null,
+        "age_days": null,
+        "date_basis": null
+      },
       "quality": {
         "dataset": "performance",
         "status": "not_applicable",
         "row_count": 0,
         "errors": [],
         "warnings": [],
+        "structural_warnings": [],
+        "anomaly_warnings": [],
         "metrics": {}
       },
       "files": []
     },
     "source_events": {
-      "status": "missing",
-      "paths": [],
-      "file_count": 0,
-      "row_count": 0,
-      "file_bytes": 0,
-      "columns": [],
+      "status": "available",
+      "paths": [
+        "source_runs.csv"
+      ],
+      "file_count": 1,
+      "row_count": 139,
+      "file_bytes": 60937,
+      "columns": [
+        "completed_at",
+        "endpoint",
+        "error_type",
+        "event_id",
+        "fund_code",
+        "http_status",
+        "ingested_at",
+        "observed_at",
+        "provider",
+        "record_count",
+        "response_hash",
+        "retry_attempts",
+        "retry_policy",
+        "run_id",
+        "source_reference",
+        "started_at",
+        "status"
+      ],
       "schema_consistent": true,
       "missing_required_columns": [],
       "fund_count": 0,
       "date_coverage": {},
+      "freshness": {
+        "assessment": "not_assessed_no_sla",
+        "sla_days": null,
+        "age_days": null,
+        "date_basis": null
+      },
       "quality": {
         "dataset": "source_events",
         "status": "not_applicable",
-        "row_count": 0,
+        "row_count": 139,
         "errors": [],
         "warnings": [],
+        "structural_warnings": [],
+        "anomaly_warnings": [],
         "metrics": {}
       },
-      "files": []
+      "files": [
+        {
+          "status": "read",
+          "row_count": 139,
+          "columns": [
+            "event_id",
+            "run_id",
+            "provider",
+            "endpoint",
+            "source_reference",
+            "started_at",
+            "observed_at",
+            "completed_at",
+            "status",
+            "error_type",
+            "http_status",
+            "record_count",
+            "response_hash",
+            "retry_policy",
+            "retry_attempts",
+            "ingested_at",
+            "fund_code"
+          ],
+          "bytes": 60937,
+          "path": "source_runs.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        }
+      ]
     },
     "research_observations": {
-      "status": "missing",
-      "paths": [],
-      "file_count": 0,
-      "row_count": 0,
-      "file_bytes": 0,
-      "columns": [],
+      "status": "available",
+      "paths": [
+        "research_observations.csv"
+      ],
+      "file_count": 1,
+      "row_count": 2251,
+      "file_bytes": 1091787,
+      "columns": [
+        "coverage_type",
+        "data_quality_status",
+        "dataset",
+        "effective_date",
+        "fund",
+        "ingested_at",
+        "observation_id",
+        "observed_at",
+        "observed_date",
+        "observed_date_basis",
+        "payload_json",
+        "published_at",
+        "quality_flags",
+        "record_hash",
+        "record_key",
+        "run_id",
+        "schema_version",
+        "source",
+        "source_reference",
+        "verification_status"
+      ],
       "schema_consistent": true,
       "missing_required_columns": [],
-      "fund_count": 0,
+      "fund_count": 69,
       "date_coverage": {
         "observed_at": {
-          "coverage_count": 0,
-          "row_count_with_column": 0,
-          "coverage": 0.0,
-          "first": null,
-          "last": null,
-          "age_days_reference_date": null,
+          "coverage_count": 2251,
+          "row_count_with_column": 2251,
+          "coverage": 1.0,
+          "first": "2026-10-27T06:33:56.265573+00:00",
+          "last": "2026-10-27T06:37:47.011768+00:00",
+          "age_days_reference_date": 0,
           "future_date_count": 0
         },
         "published_at": {
           "coverage_count": 0,
-          "row_count_with_column": 0,
+          "row_count_with_column": 2251,
           "coverage": 0.0,
           "first": null,
           "last": null,
@@ -448,26 +2804,26 @@
           "future_date_count": 0
         },
         "ingested_at": {
-          "coverage_count": 0,
-          "row_count_with_column": 0,
-          "coverage": 0.0,
-          "first": null,
-          "last": null,
-          "age_days_reference_date": null,
+          "coverage_count": 2251,
+          "row_count_with_column": 2251,
+          "coverage": 1.0,
+          "first": "2026-10-27T06:37:47.325178+00:00",
+          "last": "2026-10-27T06:37:47.325178+00:00",
+          "age_days_reference_date": 0,
           "future_date_count": 0
         },
         "effective_date": {
-          "coverage_count": 0,
-          "row_count_with_column": 0,
-          "coverage": 0.0,
-          "first": null,
-          "last": null,
-          "age_days_reference_date": null,
+          "coverage_count": 804,
+          "row_count_with_column": 2251,
+          "coverage": 0.357175,
+          "first": "2025-10-28T00:00:00+00:00",
+          "last": "2026-10-14T00:00:00+00:00",
+          "age_days_reference_date": 13,
           "future_date_count": 0
         },
         "observed_date": {
           "coverage_count": 0,
-          "row_count_with_column": 0,
+          "row_count_with_column": 2251,
           "coverage": 0.0,
           "first": null,
           "last": null,
@@ -475,36 +2831,160 @@
           "future_date_count": 0
         }
       },
+      "freshness": {
+        "assessment": "not_assessed_no_sla",
+        "sla_days": null,
+        "age_days": null,
+        "date_basis": null
+      },
       "quality": {
         "dataset": "research_observations",
         "status": "not_applicable",
-        "row_count": 0,
+        "row_count": 2251,
         "errors": [],
         "warnings": [],
+        "structural_warnings": [],
+        "anomaly_warnings": [],
         "metrics": {}
       },
-      "files": []
+      "files": [
+        {
+          "status": "read",
+          "row_count": 2251,
+          "columns": [
+            "observation_id",
+            "run_id",
+            "dataset",
+            "fund",
+            "record_key",
+            "effective_date",
+            "observed_at",
+            "published_at",
+            "ingested_at",
+            "observed_date",
+            "observed_date_basis",
+            "source",
+            "source_reference",
+            "record_hash",
+            "payload_json",
+            "data_quality_status",
+            "verification_status",
+            "quality_flags",
+            "coverage_type",
+            "schema_version"
+          ],
+          "bytes": 1091787,
+          "path": "research_observations.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        }
+      ],
+      "provenance_coverage": {
+        "effective_date": 0.357175,
+        "observed_at": 1.0,
+        "published_at": 0.0,
+        "ingested_at": 1.0,
+        "observed_date": 0.0
+      },
+      "by_dataset": {
+        "fund_fees": 671,
+        "fund_industry": 569,
+        "fund_holdings": 407,
+        "fund_bond_holdings": 180,
+        "fund_allocation": 158,
+        "fund_universe": 69,
+        "fund_profile": 69,
+        "nav_snapshot": 69,
+        "nav_history": 59
+      },
+      "availability_basis": {
+        "unknown": 2251
+      },
+      "verification_status_counts": {
+        "provider_returned_unverified": 2251
+      },
+      "data_quality_status_counts": {
+        "partial": 1896,
+        "valid": 355
+      }
     },
     "quality_reports": {
-      "status": "missing",
-      "paths": [],
-      "file_count": 0,
-      "row_count": 0,
-      "file_bytes": 0,
-      "columns": [],
+      "status": "available",
+      "paths": [
+        "quality_reports.csv"
+      ],
+      "file_count": 1,
+      "row_count": 277,
+      "file_bytes": 94920,
+      "columns": [
+        "dataset",
+        "findings_json",
+        "fund",
+        "metrics_json",
+        "quality_event_id",
+        "recorded_at",
+        "row_count",
+        "run_id",
+        "source",
+        "status"
+      ],
       "schema_consistent": true,
       "missing_required_columns": [],
-      "fund_count": 0,
+      "fund_count": 69,
       "date_coverage": {},
+      "freshness": {
+        "assessment": "not_assessed_no_sla",
+        "sla_days": null,
+        "age_days": null,
+        "date_basis": null
+      },
       "quality": {
         "dataset": "quality_reports",
         "status": "not_applicable",
-        "row_count": 0,
+        "row_count": 277,
         "errors": [],
         "warnings": [],
+        "structural_warnings": [],
+        "anomaly_warnings": [],
         "metrics": {}
       },
-      "files": []
+      "files": [
+        {
+          "status": "read",
+          "row_count": 277,
+          "columns": [
+            "quality_event_id",
+            "run_id",
+            "dataset",
+            "fund",
+            "source",
+            "status",
+            "row_count",
+            "findings_json",
+            "metrics_json",
+            "recorded_at"
+          ],
+          "bytes": 94920,
+          "path": "quality_reports.csv",
+          "missing_required_columns": [],
+          "schema_status": "ok"
+        }
+      ],
+      "status_counts": {
+        "valid": 128,
+        "partial": 79,
+        "unavailable": 70
+      },
+      "finding_counts": {
+        "empty_dataset": 0,
+        "missing_price_k": 180,
+        "censored_top_n": 587,
+        "missing_volume": 10,
+        "missing_asset_value": 10
+      },
+      "severity_counts": {
+        "warning": 787
+      }
     }
   }
 }

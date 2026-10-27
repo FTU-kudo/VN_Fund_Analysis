@@ -1,10 +1,10 @@
 # VN_Fund_Analysis
 
-Theo dõi các quỹ mở có trên Fmarket (cổ phiếu, cân bằng, trái phiếu/MMF) bằng GitHub Actions; số quỹ thực tế được xác định khi chạy từ API. README trước đây nêu 69 quỹ vào 25/10/2026, nhưng con số đó chưa được xác minh lại trong checkout hiện tại.
+Theo dõi các quỹ mở có trên Fmarket (cổ phiếu, cân bằng, trái phiếu/MMF) bằng GitHub Actions; số quỹ thực tế được xác định khi chạy từ API. Trong checkout hiện tại (`2026-10-27`), `data/funds.csv` ghi nhận **69 quỹ** (`STOCK`: 34, `BALANCED`: 11, `BOND`: 24), kèm 46 tệp snapshot cổ phiếu, 33 tệp snapshot trái phiếu, lịch sử NAV cho 59/69 quỹ (`data/nav.csv`, 47.121 điểm đến `2025-10-31`) và snapshot NAV ngày quan sát cho 69/69 quỹ (`data/nav_snapshots.csv`).
 
-Mỗi lần chạy thu top 10 cổ phiếu, top trái phiếu, cơ cấu tài sản, tỷ trọng ngành, biểu phí, hồ sơ quỹ và dữ liệu NAV có sẵn. Các bảng lịch sử holdings/factsheet chỉ ghi thêm khi nội dung đổi; riêng `nav_snapshots.csv` ghi một lần quan sát mỗi ngày, kể cả NAV không đổi. Sau đó hệ thống so sánh holdings giữa các snapshot và tạo báo cáo Markdown (tùy chọn gửi Telegram). Repository hiện chỉ có mã nguồn, chưa kèm bộ dữ liệu `data/` hoặc báo cáo thực tế.
+Mỗi lần chạy thu top 10 cổ phiếu, top trái phiếu, cơ cấu tài sản, tỷ trọng ngành, biểu phí, hồ sơ quỹ và dữ liệu NAV có sẵn. Các bảng lịch sử holdings/factsheet chỉ ghi thêm khi nội dung đổi; riêng `nav_snapshots.csv` ghi một lần quan sát mỗi ngày, kể cả NAV không đổi. Sau đó hệ thống so sánh holdings giữa các snapshot và tạo báo cáo Markdown (tùy chọn gửi Telegram). Lịch sử NAV dài trong `research_observations.csv` được lưu dạng 1 dòng summary mỗi quỹ/lần tải (`nav_history` SHA-256 + phạm vi ngày + số điểm) thay vì nhân bản từng điểm ngày, giữ toàn bộ `data/` gọn nhẹ (~2,64 MB; kiểm soát tự động bằng `scripts/check_data_budget.py`).
 
-Audit kiến trúc và giới hạn: [`docs/AUDIT_2026-10-27.md`](docs/AUDIT_2026-10-27.md). Tranche 2, PIT/provenance và bước tiếp theo: [`docs/TRANCHE_2_DATA_FOUNDATION_2026-10-27.md`](docs/TRANCHE_2_DATA_FOUNDATION_2026-10-27.md). Inventory thực tế: [`docs/DATA_INVENTORY_2026-10-27.md`](docs/DATA_INVENTORY_2026-10-27.md). Đây là pipeline nghiên cứu, chưa phải hệ thống tạo khuyến nghị hoặc backtest đã xác thực.
+Audit kiến trúc ban đầu: [`docs/AUDIT_2026-10-27.md`](docs/AUDIT_2026-10-27.md). Tranche 2 PIT/provenance: [`docs/TRANCHE_2_DATA_FOUNDATION_2026-10-27.md`](docs/TRANCHE_2_DATA_FOUNDATION_2026-10-27.md). Inventory thực tế: [`docs/DATA_INVENTORY_2026-10-27.md`](docs/DATA_INVENTORY_2026-10-27.md). Audit & báo cáo kiểm định độc lập (Phases 0–8): [`docs/AGENT_AUDIT_20261027.md`](docs/AGENT_AUDIT_20261027.md) và [`docs/AGENT_REPORT_20261027.md`](docs/AGENT_REPORT_20261027.md). Đây là pipeline nghiên cứu, chưa phải hệ thống tạo khuyến nghị hoặc backtest đã xác thực.
 
 ## Static research dashboard (GitHub Pages)
 
@@ -18,13 +18,13 @@ python scripts/export_dashboard.py
 python -m http.server 8000 --directory dashboard
 ```
 
-Mở `http://localhost:8000/` để xem bản local. Khi `data/` không có hoặc dataset thiếu, dashboard hiển thị trạng thái `missing`/`empty`/`unavailable` thay vì tạo mẫu. Checkout hiện tại **không có thư mục `data/`**, vì vậy không có quỹ, NAV, holdings hay kết quả ingest thực tế để hiển thị.
+Mở `http://localhost:8000/` để xem bản local. Khi `data/` không có hoặc dataset thiếu (như `changes.csv`, `holdings_full.csv`, `performance.csv` trong snapshot mốc đầu hiện tại), dashboard hiển thị trạng thái `missing`/`empty`/`unavailable` thay vì tạo mẫu.
 
-Artifact export chỉ gồm latest holdings snapshot theo fund/source, NAV trong tối đa 5 năm gần nhất, tối đa 25.000 portfolio events trong cửa sổ 5 năm, tối đa 2.000 source-request records gần nhất, latest quality report theo dataset/fund (tối đa 10.000), factsheet block mới nhất, validation và metadata nguồn đã sanitize. CSV archive/lịch sử không bị sửa hoặc copy nguyên vẹn sang Pages; raw payload, run ID, credential và body API không được publish. `dashboard/data/` được gitignore và được build lại bởi workflow; hãy xem lại dữ liệu archive và quyền công bố trước khi bật Pages cho repository chứa dữ liệu nhạy cảm.
+Artifact export chỉ gồm latest holdings snapshot theo fund/source, NAV trong tối đa 5 năm gần nhất, tối đa 25.000 portfolio events trong cửa sổ 5 năm, tối đa 2.000 source-request records gần nhất, latest quality report theo dataset/fund (tối đa 10.000), factsheet block mới nhất (`allocation`, `industry`, `fees`, `profile`, `performance`), validation và metadata nguồn đã sanitize. CSV archive/lịch sử không bị sửa hoặc copy nguyên vẹn sang Pages; raw payload, run ID, credential và body API không được publish. `dashboard/data/` được gitignore và được build lại bởi workflow; hãy xem lại dữ liệu archive và quyền công bố trước khi bật Pages cho repository chứa dữ liệu nhạy cảm.
 
-Để bật deployment: trong **Settings → Pages**, chọn **GitHub Actions** làm source. Sau đó workflow `.github/workflows/pages.yml` chạy test, exporter và deploy khi có thay đổi trên `main`, sau workflow daily thành công, hoặc qua `workflow_dispatch`. PR chỉ build/test, không deploy. Pages phục vụ project-site ở `/VN_Fund_Analysis/`; URLs trong UI tương đối nên không phụ thuộc domain root. Build chỉ đọc file trong repository, không thu thập nguồn live và không cần user-defined secrets; bước deploy dùng quyền `GITHUB_TOKEN`/OIDC do GitHub Actions cấp. Mở **Actions → Static research dashboard** để xem build/deploy result.
+Để bật deployment: trong **Settings → Pages**, chọn **GitHub Actions** làm source. Sau đó workflow `.github/workflows/pages.yml` chạy test, kiểm tra ngân sách dung lượng `data/` (`check_data_budget.py`), chạy exporter và deploy khi có thay đổi trên `main`, sau khi workflow daily kết thúc trên nhánh mặc định (`workflow_run`), hoặc qua `workflow_dispatch`. PR chỉ build/test, không upload artifact Pages và không deploy. Pages phục vụ project-site ở `/VN_Fund_Analysis/`; URLs trong UI tương đối nên không phụ thuộc domain root. Build chỉ đọc file trong repository, không thu thập nguồn live và không cần user-defined secrets; bước deploy dùng quyền `GITHUB_TOKEN`/OIDC do GitHub Actions cấp. Mở **Actions → Static research dashboard** để xem build/deploy result.
 
-Dashboard giữ rõ các giới hạn: Top-N không phải full portfolio; `UNCONFIRMED?` và `WEIGHT_CHANGE?` vẫn chưa xác nhận; top-N exit không chứng minh bán hết; `CORP_ACTION?` còn là heuristic. NAV snapshots là ngày quan sát, không tự xác lập effective date; publication time thiếu không được suy ra. So sánh NAV chỉ dùng ngày nguồn trùng chính xác, cùng category, tối thiểu hai điểm; metric đó không phải total return. Không có ranking, khuyến nghị, valuation/fundamentals hay giao dịch xác nhận. Freshness age được nêu nhưng không gắn `stale` khi chưa cấu hình SLA. Status tổng thể GitHub Actions luôn `unknown` nếu không có metadata workflow đáng tin cậy được lưu; thành công của request/collector không chứng minh job đã hoàn tất.
+Dashboard giữ rõ các giới hạn: Top-N không phải full portfolio; `UNCONFIRMED?` và `WEIGHT_CHANGE?` vẫn chưa xác nhận; top-N exit không chứng minh bán hết; `CORP_ACTION?` còn là heuristic. NAV snapshots là ngày quan sát, không tự xác lập effective date; publication time thiếu không được suy ra (UI hiển thị cả số lượng thiếu lẫn tỷ lệ trên mẫu sidecar). So sánh NAV chỉ dùng ngày nguồn trùng chính xác, cùng category, tối thiểu hai điểm; đổi nhóm tài sản trên UI tự động xóa lựa chọn cũ không tương thích để tránh giữ tham số URL lệch nhóm; metric đó không phải total return. Không có ranking, khuyến nghị, valuation/fundamentals hay giao dịch xác nhận. Freshness được đánh giá theo ngưỡng SLA cấu hình trong `config.toml` (`fund_holdings = 45`, `fund_bond_holdings = 45`, `allocation = 45`, `nav_snapshots = 3`, `fees = 180` ngày); các dataset không cấu hình giữ trạng thái `not_assessed_no_sla`. Trạng thái tổng thể của workflow chỉ hiển thị khi có `data/workflow_status.json` đã sanitize (ghi bởi `scripts/write_workflow_status.py`), ngược lại giữ `unknown_not_exported`.
 
 ## Cách phát hiện thay đổi vị thế
 
@@ -63,13 +63,21 @@ VN_Fund_Analysis/
 ├── scripts/
 │   ├── run_daily.py               # lệnh chạy hằng ngày (mọi quỹ, mọi bảng)
 │   ├── diagnose_sources.py        # probe Fmarket, phân loại auth/network/schema/rate-limit/empty
-│   ├── data_inventory.py          # inventory JSON/Markdown dựa trên CSV hiện có
+│   ├── data_inventory.py          # inventory JSON/Markdown + SLA freshness dựa trên CSV hiện có
 │   ├── export_dashboard.py        # tạo dashboard/data/ từ archive hiện có (không sửa CSV)
+│   ├── compact_provenance.py      # nén nav_history point-rows thành per-fund summary (có --dry-run + backup)
+│   ├── migrate_source_runs.py     # nâng cấp source_runs.csv v1 -> v2 (thêm fund_code, giữ unknown lịch sử)
+│   ├── check_data_budget.py       # kiểm tra ngưỡng dung lượng data/ & dự phóng 90 ngày
+│   ├── write_workflow_status.py   # ghi data/workflow_status.json đã sanitize (không chứa secret/log)
 │   ├── analyze_reaction.py        # phản ứng của quỹ trước một mốc thị trường
 │   ├── import_full_holdings.py    # nhập danh mục ĐẦY ĐỦ từ báo cáo chính thức (vd. DCDS)
-│   ├── backfill_hat_ccq.py        # nạp lịch sử từ 16/05/2026 (chạy 1 lần)
-│   └── export_holdings_long.py    # xuất bảng cho smart_money_quant.py
-├── tests/test_core.py
+│   ├── backfill_hat_ccq.py        # nạp lịch sử mirror vào staging/data (có --dry-run, --max-commits)
+│   └── export_holdings_long.py    # xuất bảng cho smart_money_quant.py (chỉ khi module ngoài được cung cấp)
+├── tests/
+│   ├── test_core.py               # unit & invariant tests cho store, fmarket, diff
+│   ├── test_foundation.py         # tests cho quality, temporal PIT, provenance, inventory, scripts
+│   ├── test_dashboard_export.py   # tests cho static dashboard exporter, workflow_status & SLA
+│   └── test_dashboard_ui.mjs      # offline Node test suite cho UI state/filter/compare/formatters
 ├── data/                          # tự sinh:
 │   ├── holdings/{QUY}.csv         #   top 10 cổ phiếu mỗi kỳ công bố
 │   ├── bonds/{QUY}.csv            #   top trái phiếu mỗi kỳ công bố
@@ -160,7 +168,7 @@ Báo cáo `reports/reaction_<mốc>.md` gồm: NAV từ mốc theo loại quỹ,
 
 ## Nguồn ngoài Fmarket (quỹ không có trên Fmarket, danh mục đầy đủ)
 
-- Nếu dữ liệu `data/profile.csv` đã được thu thập, website công ty quản lý có thể có ở cột `website` (ví dụ vfm.com.vn, vcbf.com, wm.vinacapital.com, ssiam.com.vn); checkout hiện tại không kèm bảng này để xác minh số lượng/độ mới.
+- Trong `data/profile.csv` hiện tại (69 dòng), website công ty quản lý nằm ở cột `website` (ví dụ `https://abf.com.vn/`, `vfm.com.vn`, `vcbf.com`, `wm.vinacapital.com`, `ssiam.com.vn`).
 - **Không tự động hóa nguồn ngoài khi chưa kiểm tra điều khoản.** Nhiều trang tổng hợp (ví dụ Smoney) cấm sao chép/tái sử dụng dữ liệu nếu không có văn bản đồng ý, nên không có scraper cho các trang đó trong dự án.
 - Với trang của công ty quản lý quỹ: kiểm tra `robots.txt` và điều khoản, rồi tải báo cáo tháng (PDF/HTML), trích bảng danh mục vào CSV và dùng `scripts/import_full_holdings.py` (bắt buộc ghi URL `http(s)` vào `source_url`). Nếu tỷ trọng theo % nhưng tất cả giá trị ≤ 1, phải chỉ rõ `--weight-unit percent`; `auto` không thể suy ra đơn vị trong trường hợp đó. Cách này cũng áp dụng cho DCDS (không có trên Fmarket).
 
@@ -168,7 +176,7 @@ Báo cáo `reports/reaction_<mốc>.md` gồm: NAV từ mốc theo loại quỹ,
 
 - Chỉ có **top 10** mỗi quỹ (cổ phiếu) và vài trái phiếu lớn nhất. Quỹ MMF không có danh mục chi tiết trên Fmarket, nên chỉ có NAV, phí, hồ sơ.
 - `report_date` của cơ cấu tài sản là ngày theo giờ Việt Nam của `reportTime` (nửa đêm 01/09 ứng với kỳ báo cáo tháng 8): hãy hiểu là cuối kỳ trước đó.
-- README trước đây ghi lịch sử NAV trên endpoint Fmarket/hat-ccq có thể thưa và dừng ở 2025; dữ liệu nguồn không có trong checkout này nên tình trạng đó chưa được tái kiểm chứng. `nav.csv` được tải cho lịch sử dài khi quỹ chưa có dữ liệu; `nav_snapshots.csv` ghi NAV theo ngày hệ thống quan sát. `analyze_reaction.py` ghép hai nguồn nhưng ngày snapshot không xác nhận ngày NAV có hiệu lực.
+- Kiểm chứng trên `data/nav.csv` hiện tại xác nhận lịch sử NAV trên endpoint `POST /product/get-nav-history` của Fmarket đang dừng ở `2025-10-31` (59/69 quỹ có chuỗi, 47.121 điểm; 10 quỹ trả về `empty_response`: `ABEF`, `AEIF`, `DCBA`, `KSIF`, `LHFCF`, `LPLF`, `SSIPDF`, `UMMF`, `USIF`, `VBIF`). `nav.csv` và `nav_snapshots.csv` được giữ là hai chuỗi tách biệt; `analyze_reaction.py` chỉ ghép có kiểm soát cho báo cáo mô tả khi vượt qua kiểm tra `validate_nav_snapshot` và gắn nhãn rõ khoảng trống chuỗi nguồn đến ngày quan sát.
 - Thiếu danh mục đầy đủ nên không biết quỹ có bán hết một mã hay không.
 - `observed_date` là ngày phát hiện, không phải ngày quỹ giao dịch. Quỹ giao dịch trong tháng nhưng danh mục chỉ cập nhật theo kỳ.
 - Tác giả README trước đây ghi nhận chênh khoảng 0,1 điểm % ở VCBF-BCF; không có snapshot/factsheet kèm trong checkout để tái xác minh. Đối chiếu số liệu chính thức trước khi ra quyết định.
@@ -186,6 +194,6 @@ Báo cáo `reports/reaction_<mốc>.md` gồm: NAV từ mốc theo loại quỹ,
 
 ## Nguồn dữ liệu và giấy phép
 
-- Dữ liệu: API công khai của Fmarket (không có tài liệu chính thức). Dùng cho nghiên cứu cá nhân, giữ tần suất thấp, và tự kiểm tra điều khoản sử dụng trước khi chia sẻ dữ liệu.
-- Script backfill đọc lịch sử git của [huyhn-ba-po/hat-ccq](https://github.com/huyhn-ba-po/hat-ccq) (MIT). Không có mã nguồn nào của repo đó được sao chép vào dự án này.
+- Dữ liệu: API công khai của Fmarket (không có tài liệu chính thức). Dùng cho nghiên cứu cá nhân, giữ tần suất thấp, và tự kiểm tra điều khoản sử dụng trước khi chia sẻ hoặc tái phân phối dữ liệu.
+- Script `scripts/backfill_hat_ccq.py` hỗ trợ đọc lịch sử git của [huyhn-ba-po/hat-ccq](https://github.com/huyhn-ba-po/hat-ccq) vào thư mục staging (`--data-dir` / `--dry-run` / `--max-commits`). Lưu ý pháp lý: README của `hat-ccq` dẫn liên kết `[MIT](LICENSE)` nhưng repository gốc không có tệp `LICENSE` (`HTTP 404` trên `/license`), đồng thời quyền tái phân phối dữ liệu Fmarket chưa được xác minh độc lập; theo quyết định quản trị dự án hiện tại, dữ liệu mirror **không** được publish vào `data/` của nhánh chính cho tới khi xác nhận điều khoản. Không có mã nguồn nào của repo đó được sao chép vào dự án này.
 - Đây là công cụ nghiên cứu, không phải khuyến nghị đầu tư.

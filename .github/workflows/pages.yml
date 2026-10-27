@@ -4,43 +4,29 @@ on:
   push:
     branches: [main]
     paths:
+      - "config.toml"
       - "dashboard/**"
       - "data/**"
-      - "vnfa/dashboard_export.py"
-      - "vnfa/diff.py"
-      - "vnfa/fmarket.py"
-      - "vnfa/inventory.py"
-      - "vnfa/pipeline.py"
-      - "vnfa/provenance.py"
-      - "vnfa/quality.py"
-      - "vnfa/store.py"
-      - "scripts/run_daily.py"
-      - ".github/workflows/daily.yml"
-      - "scripts/export_dashboard.py"
+      - "vnfa/**"
+      - "scripts/**"
       - "requirements.txt"
       - "tests/**"
+      - ".github/workflows/daily.yml"
       - ".github/workflows/pages.yml"
   pull_request:
     branches: [main]
     paths:
+      - "config.toml"
       - "dashboard/**"
       - "data/**"
-      - "vnfa/dashboard_export.py"
-      - "vnfa/diff.py"
-      - "vnfa/fmarket.py"
-      - "vnfa/inventory.py"
-      - "vnfa/pipeline.py"
-      - "vnfa/provenance.py"
-      - "vnfa/quality.py"
-      - "vnfa/store.py"
-      - "scripts/run_daily.py"
-      - ".github/workflows/daily.yml"
-      - "scripts/export_dashboard.py"
+      - "vnfa/**"
+      - "scripts/**"
       - "requirements.txt"
       - "tests/**"
+      - ".github/workflows/daily.yml"
       - ".github/workflows/pages.yml"
   # Daily's GITHUB_TOKEN commit does not trigger a second push workflow.
-  # A successful run rebuilds Pages from the new data committed to the default branch.
+  # Rebuild Pages whenever the daily workflow finishes on the default branch (success or failure with updated workflow_status.json).
   workflow_run:
     workflows: ["Daily fund holdings check (all funds)"]
     types: [completed]
@@ -55,37 +41,42 @@ concurrency:
 
 jobs:
   build:
-    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == github.event.repository.default_branch)
+    if: github.event_name != 'workflow_run' || ((github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure') && github.event.workflow_run.head_branch == github.event.repository.default_branch)
     permissions:
       contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
           cache: pip
       - name: Install repository dependencies
         run: python -m pip install -r requirements.txt
       - name: Set up Node.js for dependency-free UI tests
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
-      - name: Run repository tests
+      - name: Run repository Python tests
         run: python -m pytest -q
       - name: Test static dashboard utilities
         run: node --test tests/test_dashboard_ui.mjs
+      - name: Check data archive size budget
+        run: python scripts/check_data_budget.py --data-dir data
       - name: Export sanitized static data
         run: python scripts/export_dashboard.py
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v5
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: dashboard
 
   deploy:
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == github.event.repository.default_branch))
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -97,7 +88,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Configure Pages
-        uses: actions/configure-pages@v6
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
