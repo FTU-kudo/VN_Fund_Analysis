@@ -2,7 +2,7 @@
 """Lưu trữ append-only bằng CSV (sep=';'), chỉ ghi khi danh mục của quỹ thực sự đổi.
 
 data/holdings/{FUND}.csv : mỗi lần phát hiện danh mục mới ghi thêm một khối dòng (kỳ công bố)
-data/changes.csv         : nhật ký mua/bán đã phát hiện
+data/changes.csv         : nhật ký thay đổi vị thế quan sát/suy luận và cờ bất định
 data/funds.csv           : danh bạ quỹ (mã, công ty quản lý, loại)
 """
 from __future__ import annotations
@@ -62,10 +62,18 @@ class Store:
         """Trả về (status, prev). status ∈ {'baseline','changed','unchanged'}."""
         if holdings is None or holdings.empty:
             return "empty", None
+        try:
+            observed_date = pd.Timestamp(observed_date).date().isoformat()
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"observed_date không hợp lệ: {observed_date!r}") from exc
         h = content_hash(holdings)
         prev = self.last_disclosure(fund)
-        if prev is not None and prev.content_hash.iloc[0] == h:
-            return "unchanged", prev
+        if prev is not None:
+            previous_date = pd.to_datetime(prev.observed_date, errors="raise").max().date().isoformat()
+            if observed_date < previous_date:
+                raise ValueError(f"Snapshot ngược thời gian cho {fund}: {observed_date} < {previous_date}")
+            if prev.content_hash.iloc[0] == h:
+                return "unchanged", prev
         block = holdings.copy()
         block.insert(0, "observed_date", observed_date)
         block.insert(1, "fund", fund)
@@ -122,6 +130,8 @@ class TableStore:
     def __init__(self, root: str | Path = "data", write: bool = True):
         self.root, self.write = Path(root), write
         self._hashes: dict[str, dict[str, str]] = {}
+        self._last_dates: dict[str, dict[str, str]] = {}
+        self._snapshot_last: dict[str, tuple[str, float]] | None = None
         if write:
             self.root.mkdir(parents=True, exist_ok=True)
 
@@ -141,19 +151,30 @@ class TableStore:
     def _last_hashes(self, table: str) -> dict[str, str]:
         if table not in self._hashes:
             t = self.read(table)
-            self._hashes[table] = {} if t.empty else dict(t.groupby("fund").content_hash.last())
+            if t.empty:
+                self._hashes[table], self._last_dates[table] = {}, {}
+            else:
+                self._hashes[table] = dict(t.groupby("fund").content_hash.last())
+                last_rows = t.groupby("fund", sort=False).tail(1)
+                self._last_dates[table] = dict(zip(last_rows.fund, last_rows.observed_date))
         return self._hashes[table]
 
     def append_if_changed(self, table: str, fund: str, df: pd.DataFrame, observed_date: str) -> str:
         """Trả về 'baseline' | 'changed' | 'unchanged' | 'empty'."""
         if df is None or df.empty:
             return "empty"
+        try:
+            observed_date = pd.Timestamp(observed_date).date().isoformat()
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"observed_date không hợp lệ: {observed_date!r}") from exc
         h = self._hash(df)
         hashes = self._last_hashes(table)
+        dates = self._last_dates[table]
+        if fund in dates and observed_date < pd.Timestamp(dates[fund]).date().isoformat():
+            raise ValueError(f"Snapshot {table} ngược thời gian cho {fund}: {observed_date} < {dates[fund]}")
         if hashes.get(fund) == h:
             return "unchanged"
         status = "changed" if fund in hashes else "baseline"
-        hashes[fund] = h
         if self.write:
             block = df.copy()
             block.insert(0, "observed_date", observed_date)
@@ -161,6 +182,8 @@ class TableStore:
             block["content_hash"] = h
             p = self.path(table)
             block.to_csv(p, sep=SEP, mode="a", header=not p.exists(), index=False)
+        hashes[fund] = h
+        dates[fund] = observed_date
         return status
 
     def latest(self, table: str) -> pd.DataFrame:
@@ -187,9 +210,21 @@ class TableStore:
         if not parts:
             return 0
         old = self.read_nav()
-        new = pd.concat([d.assign(fund=f) for f, d in parts.items() if not d.empty], ignore_index=True)
+        frames = [d.assign(fund=f) for f, d in parts.items() if d is not None and not d.empty]
+        if not frames:
+            return 0
+        new = pd.concat(frames, ignore_index=True)
         if new.empty:
             return 0
+        if not {"fund", "date", "nav"}.issubset(new.columns):
+            raise ValueError("NAV history thiếu một trong các cột fund/date/nav")
+        new = new.copy()
+        new["date"] = pd.to_datetime(new.date, errors="raise").dt.strftime("%Y-%m-%d")
+        new["nav"] = pd.to_numeric(new.nav, errors="raise")
+        if new.fund.isna().any() or (new.fund.astype(str).str.strip() == "").any() \
+                or not np.isfinite(new.nav.astype(float)).all() or (new.nav.astype(float) <= 0).any():
+            raise ValueError("NAV history chỉ được ghi với mã quỹ hợp lệ và NAV dương/hữu hạn")
+        new = new.drop_duplicates(["fund", "date"], keep="last")
         both = pd.concat([old.assign(_o=1), new.assign(_o=0)], ignore_index=True)
         both["nav"] = both.nav.astype(float)
         merged = both.sort_values(["fund", "date", "_o"]).drop_duplicates(["fund", "date"], keep="first")
@@ -204,16 +239,45 @@ class TableStore:
 
     # ── NAV chụp hằng ngày từ chi tiết quỹ (API lịch sử NAV của Fmarket bị cũ/thưa, xem README) ──
     def append_nav_snapshot(self, fund: str, nav: float, date: str) -> bool:
-        """Ghi (fund;date;nav) vào data/nav_snapshots.csv khi NAV khác lần ghi trước. Trả về True nếu có ghi."""
-        if "nav_snapshots" not in self._hashes:
+        """Ghi lần QUAN SÁT NAV theo ngày, kể cả khi giá trị không đổi.
+
+        `date` là ngày hệ thống quan sát, không khẳng định là ngày hiệu lực của NAV. Ghi
+        các ngày không đổi giúp không nhầm "NAV chưa thay đổi" với "dữ liệu đã cũ". Khóa
+        logic là (fund, date); nếu API trả NAV khác trong cùng ngày, lưu revision cuối và
+        các consumer phải deduplicate theo khóa này, giữ dòng cuối.
+        """
+        try:
+            obs_date = pd.Timestamp(date).date().isoformat()
+            nav_value = float(nav)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"NAV snapshot không hợp lệ: fund={fund!r}, date={date!r}, nav={nav!r}") from exc
+        if not fund or not np.isfinite(nav_value) or nav_value <= 0:
+            raise ValueError(f"NAV snapshot phải có mã quỹ và NAV dương hữu hạn: {fund!r}, {nav!r}")
+
+        if self._snapshot_last is None:
             t = self.read("nav_snapshots")
-            self._hashes["nav_snapshots"] = {} if t.empty else dict(zip(t.fund, t.nav.astype(float)))
-        last = self._hashes["nav_snapshots"]
-        if fund in last and abs(last[fund] - nav) < 1e-9:
-            return False
-        last[fund] = nav
+            self._snapshot_last = {}
+            if not t.empty:
+                if not {"fund", "date", "nav"}.issubset(t.columns):
+                    raise ValueError("nav_snapshots.csv thiếu một trong các cột fund/date/nav")
+                t = t.copy()
+                t["date"] = pd.to_datetime(t.date, errors="raise").dt.strftime("%Y-%m-%d")
+                t["nav"] = pd.to_numeric(t.nav, errors="raise")
+                t = t.sort_values(["fund", "date"], kind="stable")
+                for row in t.groupby("fund", sort=False).tail(1).itertuples(index=False):
+                    self._snapshot_last[str(row.fund)] = (str(row.date), float(row.nav))
+
+        previous = self._snapshot_last.get(str(fund))
+        if previous is not None:
+            last_date, last_nav = previous
+            if obs_date < last_date:
+                raise ValueError(f"NAV snapshot ngược thời gian cho {fund}: {obs_date} < {last_date}")
+            if obs_date == last_date and abs(last_nav - nav_value) < 1e-9:
+                return False
+
         if self.write:
             p = self.path("nav_snapshots")
-            pd.DataFrame([{"fund": fund, "date": date, "nav": nav}]).to_csv(
+            pd.DataFrame([{"fund": fund, "date": obs_date, "nav": nav_value}]).to_csv(
                 p, sep=SEP, mode="a", header=not p.exists(), index=False)
+        self._snapshot_last[str(fund)] = (obs_date, nav_value)
         return True

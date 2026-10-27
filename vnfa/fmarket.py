@@ -6,8 +6,11 @@ kiểm tra điều khoản sử dụng của Fmarket và đối chiếu số li�
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -16,6 +19,8 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from .provenance import utc_now
+
 BASE = "https://api.fmarket.vn/res"
 ICT = timezone(timedelta(hours=7))
 DEFAULT_UA = "VN_Fund_Analysis/0.1 (personal research; public data)"
@@ -23,12 +28,26 @@ log = logging.getLogger("vnfa.fmarket")
 
 
 class FmarketError(RuntimeError):
-    pass
+    def __init__(self, message: str, api_status: int | str | None = None):
+        super().__init__(message)
+        self.api_status = api_status
+
+
+class FmarketSchemaError(FmarketError):
+    """The endpoint returned a shape that does not meet the adapter contract."""
+
+
+class FmarketEmptyResponse(FmarketError):
+    """The endpoint responded successfully but returned no records."""
 
 
 class FmarketClient:
-    def __init__(self, delay: float = 1.0, timeout: int = 30, user_agent: str | None = None):
+    def __init__(self, delay: float = 1.0, timeout: int = 30, user_agent: str | None = None,
+                 run_id: str | None = None):
         self.delay, self.timeout = delay, timeout
+        self.run_id = run_id or uuid.uuid4().hex
+        self.source_events: list[dict] = []
+        self.last_source_event: dict | None = None
         self.session = requests.Session()
         self.session.headers.update({
             "User-Agent": user_agent or DEFAULT_UA,
@@ -40,17 +59,120 @@ class FmarketClient:
         retry = Retry(total=4, backoff_factor=2.0, status_forcelist=(429, 500, 502, 503, 504),
                       allowed_methods=frozenset({"GET", "POST"}), respect_retry_after_header=True)
         self.session.mount("https://", HTTPAdapter(max_retries=retry))
+        self.retry_policy = "urllib3 total=4; backoff_factor=2; statuses=429,500,502,503,504; respect_retry_after=true"
+
+    @staticmethod
+    def _http_category(status: int | None) -> tuple[str, str]:
+        if status in (401, 403):
+            return "authentication_error", "authentication"
+        if status == 429:
+            return "rate_limit", "rate_limit"
+        if status in (408, 425) or status is not None and status >= 500:
+            return "network_error", "network"
+        if status is not None and status >= 400:
+            return "schema_error", "schema"
+        return "error", "http"
+
+    def _mark_last_event(self, status: str, error_type: str | None = None,
+                         record_count: int | None = None) -> None:
+        if self.last_source_event is None:
+            return
+        self.last_source_event["status"] = status
+        if error_type is not None:
+            self.last_source_event["error_type"] = error_type
+        if record_count is not None:
+            self.last_source_event["record_count"] = record_count
+
+    @staticmethod
+    def _retry_attempt_count(response) -> int | None:
+        retries = getattr(getattr(response, "raw", None), "retries", None)
+        history = getattr(retries, "history", None)
+        return len(history) if history is not None else None
 
     def _call(self, method: str, path: str, **kw):
-        time.sleep(self.delay)
-        resp = self.session.request(method, f"{BASE}{path}", timeout=self.timeout, **kw)
-        resp.raise_for_status()
-        js = resp.json()
-        if isinstance(js, dict):
-            if js.get("status") not in (None, 200):
-                raise FmarketError(f"{path}: status={js.get('status')} message={js.get('message')}")
-            return js.get("data", js)
-        return js
+        event = {
+            "event_id": None,
+            "run_id": self.run_id,
+            "provider": "fmarket",
+            "endpoint": f"{method.upper()} {path}",
+            "source_reference": path,
+            "started_at": utc_now(),
+            "observed_at": None,
+            "completed_at": None,
+            "status": "started",
+            "error_type": None,
+            "http_status": None,
+            "record_count": None,
+            "response_hash": None,
+            "retry_policy": self.retry_policy,
+            "retry_attempts": None,
+            "ingested_at": None,
+        }
+        response = None
+        try:
+            time.sleep(self.delay)
+            response = self.session.request(method, f"{BASE}{path}", timeout=self.timeout, **kw)
+            event["observed_at"] = utc_now()
+            event["http_status"] = response.status_code
+            event["retry_attempts"] = self._retry_attempt_count(response)
+            body = getattr(response, "content", b"")
+            if body:
+                event["response_hash"] = hashlib.sha256(body).hexdigest()
+            response.raise_for_status()
+            try:
+                js = response.json()
+            except (requests.exceptions.JSONDecodeError, json.JSONDecodeError) as exc:
+                event["status"], event["error_type"] = "schema_error", "schema"
+                raise FmarketSchemaError(f"{path}: response is not valid JSON") from exc
+            if isinstance(js, dict):
+                if js.get("status") not in (None, 200):
+                    api_status = js.get("status")
+                    category, error_type = self._http_category(
+                        int(api_status) if str(api_status).isdigit() else None)
+                    event["status"], event["error_type"] = category, error_type
+                    raise FmarketError(f"{path}: source returned a non-success status", api_status=api_status)
+                data = js.get("data", js)
+            else:
+                data = js
+            if isinstance(data, list):
+                event["record_count"] = len(data)
+            elif isinstance(data, dict):
+                rows = data.get("rows")
+                event["record_count"] = len(rows) if isinstance(rows, list) else 1
+            event["status"] = "success"
+            return data
+        except requests.exceptions.HTTPError as exc:
+            status_code = getattr(getattr(exc, "response", None), "status_code", None)
+            if status_code is None and response is not None:
+                status_code = response.status_code
+            category, error_type = self._http_category(status_code)
+            event["status"], event["error_type"] = category, error_type
+            event["http_status"] = status_code
+            raise
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+            event["status"], event["error_type"] = "network_error", "network"
+            raise
+        except requests.exceptions.RequestException:
+            event["status"], event["error_type"] = "network_error", "network"
+            raise
+        except FmarketSchemaError:
+            event["status"], event["error_type"] = "schema_error", "schema"
+            raise
+        except FmarketError as exc:
+            status = int(exc.api_status) if str(exc.api_status).isdigit() else None
+            category, error_type = self._http_category(status)
+            event["status"], event["error_type"] = category, error_type
+            event["http_status"] = status
+            raise
+        except (ValueError, TypeError):
+            event["status"], event["error_type"] = "schema_error", "schema"
+            raise
+        finally:
+            event["completed_at"] = utc_now()
+            if event["observed_at"] is None and response is not None:
+                event["observed_at"] = utc_now()
+            self.source_events.append(event)
+            self.last_source_event = event
 
     def list_products(self) -> list[dict]:
         body = {
@@ -60,17 +182,54 @@ class FmarketClient:
             "isBuyByReward": False, "thirdAppIds": [],
         }
         data = self._call("POST", "/products/filter", json=body)
-        return data.get("rows", []) if isinstance(data, dict) else list(data)
+        if isinstance(data, dict):
+            if "rows" not in data:
+                self._mark_last_event("schema_error", "schema")
+                raise FmarketSchemaError("/products/filter: required rows field is missing")
+            rows = data["rows"]
+        elif isinstance(data, list):
+            rows = data
+        else:
+            self._mark_last_event("schema_error", "schema")
+            raise FmarketSchemaError("/products/filter: expected a list or an object containing rows")
+        if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+            self._mark_last_event("schema_error", "schema")
+            raise FmarketSchemaError("/products/filter: rows must be a list of objects")
+        if any(row.get("id") is None or not row.get("code") for row in rows):
+            self._mark_last_event("schema_error", "schema", record_count=len(rows))
+            raise FmarketSchemaError("/products/filter: each product requires id and code")
+        self._mark_last_event("empty_response" if not rows else "success", record_count=len(rows))
+        return rows
 
     def product_detail(self, product_id: int) -> dict:
-        return self._call("GET", f"/products/{product_id}")
+        path = f"/products/{product_id}"
+        data = self._call("GET", path)
+        if not isinstance(data, dict):
+            self._mark_last_event("schema_error", "schema")
+            raise FmarketSchemaError(f"{path}: expected a JSON object")
+        if not data:
+            self._mark_last_event("empty_response", "empty_response", record_count=0)
+            raise FmarketEmptyResponse(f"{path}: no product detail returned")
+        if not any(data.get(key) for key in ("id", "code")):
+            self._mark_last_event("schema_error", "schema", record_count=1)
+            raise FmarketSchemaError(f"{path}: required product identity fields are missing")
+        self._mark_last_event("success", record_count=1)
+        return data
 
     def nav_history(self, product_id: int, from_date: str = "2014-01-01", to_date: str | None = None) -> pd.DataFrame:
         """Lịch sử NAV/CCQ. Trả về DataFrame [date, nav]."""
         to_date = to_date or datetime.now(ICT).date().isoformat()
         body = {"isAllData": 1, "productId": product_id, "fromDate": from_date, "toDate": to_date}
         data = self._call("POST", "/product/get-nav-history", json=body)
-        return parse_nav_history(data)
+        if not isinstance(data, list):
+            self._mark_last_event("schema_error", "schema")
+            raise FmarketSchemaError("/product/get-nav-history: expected a list")
+        parsed = parse_nav_history(data)
+        if data and parsed.empty:
+            self._mark_last_event("schema_error", "schema", record_count=0)
+            raise FmarketSchemaError("/product/get-nav-history: rows were present but none had valid date/NAV")
+        self._mark_last_event("empty_response" if parsed.empty else "success", record_count=len(parsed))
+        return parsed
 
 
 # ───────────────────────── Bộ phân tích ─────────────────────────
@@ -145,12 +304,19 @@ def _ms_to_date(ms) -> str | None:
 
 
 def parse_nav_history(data) -> pd.DataFrame:
-    """Chấp nhận JSON gốc (navDate, nav) hoặc bản rút gọn của hat-ccq (d, v)."""
+    """Chấp nhận JSON gốc (navDate, nav) hoặc bản rút gọn của hat-ccq (d, v).
+
+    Bỏ điểm không có ngày hợp lệ hoặc NAV không dương/hữu hạn để không đưa giá trị
+    lỗi vào chuỗi lợi nhuận. Giá trị bị loại sẽ được ghi log để có thể truy tìm nguồn.
+    """
     rows = []
     for r in data or []:
         d, v = r.get("navDate", r.get("d")), _num(r.get("nav", r.get("v")))
-        if d and not np.isnan(v):
-            rows.append((str(d)[:10], v))
+        parsed_date = pd.to_datetime(str(d)[:10], errors="coerce") if d else pd.NaT
+        if pd.isna(parsed_date) or not np.isfinite(v) or v <= 0:
+            log.warning("Bỏ điểm NAV không hợp lệ: date=%r nav=%r", d, v)
+            continue
+        rows.append((parsed_date.date().isoformat(), v))
     df = pd.DataFrame(rows, columns=["date", "nav"])
     return df.drop_duplicates("date", keep="last").sort_values("date").reset_index(drop=True)
 
