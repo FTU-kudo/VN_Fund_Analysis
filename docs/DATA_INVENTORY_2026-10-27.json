@@ -1,0 +1,510 @@
+{
+  "inventory_version": "1",
+  "generated_at": "2026-10-27T11:10:58+07:00",
+  "reference_date": "2026-10-27",
+  "data_directory": "data",
+  "data_directory_exists": false,
+  "repository_data_files": 0,
+  "summary": {
+    "datasets_expected": 15,
+    "datasets_available": 0,
+    "datasets_missing": 15,
+    "datasets_with_schema_or_read_issues": 0,
+    "csv_rows_observed": 0,
+    "funds_observed_across_tables": 0,
+    "unclassified_csv_files": []
+  },
+  "source_coverage": {
+    "status": "not_recorded",
+    "event_count": 0,
+    "note": "No persisted source diagnostics/requests were found; live connectivity is unverified."
+  },
+  "limitations": [
+    "Inventory describes files present at generation time; it does not represent current live Fmarket coverage.",
+    "Missing datasets and unknown values are not interpreted as zero or as proof that a source has no records.",
+    "Top-N holdings are censored. Date-only and approximate backfill observations have lower or no PIT eligibility.",
+    "Source terms, published-time semantics, and live schema require independent verification."
+  ],
+  "prioritized_next_steps": [
+    {
+      "priority": "P0",
+      "action": "Create/restore the data archive and run a small approved collection; inventory found no existing CSV observations."
+    },
+    {
+      "priority": "P1",
+      "action": "Run the classified source diagnostic from an environment allowed to reach Fmarket; check terms/rate limits separately."
+    },
+    {
+      "priority": "P1",
+      "action": "Start collecting exact observed_at/ingested_at and leave unknown published_at blank; exclude timestamp-unknown records from PIT analyses."
+    },
+    {
+      "priority": "P2",
+      "action": "Accumulate verified full holdings, fund AUM/flows, official publication times, NAV history, and benchmark/fee data before any ranking or backtest."
+    },
+    {
+      "priority": "P3",
+      "action": "Do not interpret inferred holdings changes as trades or assert investment alpha; validate only after a point-in-time dataset is sufficiently covered."
+    }
+  ],
+  "datasets": {
+    "fund_metadata": {
+      "status": "missing",
+      "paths": [],
+      "file_count": 0,
+      "row_count": 0,
+      "file_bytes": 0,
+      "columns": [],
+      "schema_consistent": true,
+      "missing_required_columns": [],
+      "fund_count": 0,
+      "date_coverage": {},
+      "quality": {
+        "dataset": "fund_metadata",
+        "status": "not_applicable",
+        "row_count": 0,
+        "errors": [],
+        "warnings": [],
+        "metrics": {}
+      },
+      "files": []
+    },
+    "fund_holdings": {
+      "status": "missing",
+      "paths": [],
+      "file_count": 0,
+      "row_count": 0,
+      "file_bytes": 0,
+      "columns": [],
+      "schema_consistent": true,
+      "missing_required_columns": [],
+      "fund_count": 0,
+      "date_coverage": {
+        "observed_date": {
+          "coverage_count": 0,
+          "row_count_with_column": 0,
+          "coverage": 0.0,
+          "first": null,
+          "last": null,
+          "age_days_reference_date": null,
+          "future_date_count": 0
+        },
+        "update_date": {
+          "coverage_count": 0,
+          "row_count_with_column": 0,
+          "coverage": 0.0,
+          "first": null,
+          "last": null,
+          "age_days_reference_date": null,
+          "future_date_count": 0
+        }
+      },
+      "quality": {
+        "dataset": "fund_holdings",
+        "status": "not_applicable",
+        "row_count": 0,
+        "errors": [],
+        "warnings": [],
+        "metrics": {}
+      },
+      "files": []
+    },
+    "fund_bond_holdings": {
+      "status": "missing",
+      "paths": [],
+      "file_count": 0,
+      "row_count": 0,
+      "file_bytes": 0,
+      "columns": [],
+      "schema_consistent": true,
+      "missing_required_columns": [],
+      "fund_count": 0,
+      "date_coverage": {
+        "observed_date": {
+          "coverage_count": 0,
+          "row_count_with_column": 0,
+          "coverage": 0.0,
+          "first": null,
+          "last": null,
+          "age_days_reference_date": null,
+          "future_date_count": 0
+        },
+        "update_date": {
+          "coverage_count": 0,
+          "row_count_with_column": 0,
+          "coverage": 0.0,
+          "first": null,
+          "last": null,
+          "age_days_reference_date": null,
+          "future_date_count": 0
+        }
+      },
+      "quality": {
+        "dataset": "fund_bond_holdings",
+        "status": "not_applicable",
+        "row_count": 0,
+        "errors": [],
+        "warnings": [],
+        "metrics": {}
+      },
+      "files": []
+    },
+    "full_holdings": {
+      "status": "missing",
+      "paths": [],
+      "file_count": 0,
+      "row_count": 0,
+      "file_bytes": 0,
+      "columns": [],
+      "schema_consistent": true,
+      "missing_required_columns": [],
+      "fund_count": 0,
+      "date_coverage": {
+        "observed_date": {
+          "coverage_count": 0,
+          "row_count_with_column": 0,
+          "coverage": 0.0,
+          "first": null,
+          "last": null,
+          "age_days_reference_date": null,
+          "future_date_count": 0
+        },
+        "period_end": {
+          "coverage_count": 0,
+          "row_count_with_column": 0,
+          "coverage": 0.0,
+          "first": null,
+          "last": null,
+          "age_days_reference_date": null,
+          "future_date_count": 0
+        }
+      },
+      "quality": {
+        "dataset": "full_holdings",
+        "status": "not_applicable",
+        "row_count": 0,
+        "errors": [],
+        "warnings": [],
+        "metrics": {}
+      },
+      "files": []
+    },
+    "changes": {
+      "status": "missing",
+      "paths": [],
+      "file_count": 0,
+      "row_count": 0,
+      "file_bytes": 0,
+      "columns": [],
+      "schema_consistent": true,
+      "missing_required_columns": [],
+      "fund_count": 0,
+      "date_coverage": {
+        "observed_date": {
+          "coverage_count": 0,
+          "row_count_with_column": 0,
+          "coverage": 0.0,
+          "first": null,
+          "last": null,
+          "age_days_reference_date": null,
+          "future_date_count": 0
+        }
+      },
+      "quality": {
+        "dataset": "changes",
+        "status": "not_applicable",
+        "row_count": 0,
+        "errors": [],
+        "warnings": [],
+        "metrics": {}
+      },
+      "files": []
+    },
+    "nav_history": {
+      "status": "missing",
+      "paths": [],
+      "file_count": 0,
+      "row_count": 0,
+      "file_bytes": 0,
+      "columns": [],
+      "schema_consistent": true,
+      "missing_required_columns": [],
+      "fund_count": 0,
+      "date_coverage": {
+        "date": {
+          "coverage_count": 0,
+          "row_count_with_column": 0,
+          "coverage": 0.0,
+          "first": null,
+          "last": null,
+          "age_days_reference_date": null,
+          "future_date_count": 0
+        }
+      },
+      "quality": {
+        "dataset": "nav_history",
+        "status": "not_applicable",
+        "row_count": 0,
+        "errors": [],
+        "warnings": [],
+        "metrics": {}
+      },
+      "files": []
+    },
+    "nav_snapshots": {
+      "status": "missing",
+      "paths": [],
+      "file_count": 0,
+      "row_count": 0,
+      "file_bytes": 0,
+      "columns": [],
+      "schema_consistent": true,
+      "missing_required_columns": [],
+      "fund_count": 0,
+      "date_coverage": {
+        "date": {
+          "coverage_count": 0,
+          "row_count_with_column": 0,
+          "coverage": 0.0,
+          "first": null,
+          "last": null,
+          "age_days_reference_date": null,
+          "future_date_count": 0
+        }
+      },
+      "quality": {
+        "dataset": "nav_snapshots",
+        "status": "not_applicable",
+        "row_count": 0,
+        "errors": [],
+        "warnings": [],
+        "metrics": {}
+      },
+      "files": []
+    },
+    "allocation": {
+      "status": "missing",
+      "paths": [],
+      "file_count": 0,
+      "row_count": 0,
+      "file_bytes": 0,
+      "columns": [],
+      "schema_consistent": true,
+      "missing_required_columns": [],
+      "fund_count": 0,
+      "date_coverage": {
+        "report_date": {
+          "coverage_count": 0,
+          "row_count_with_column": 0,
+          "coverage": 0.0,
+          "first": null,
+          "last": null,
+          "age_days_reference_date": null,
+          "future_date_count": 0
+        }
+      },
+      "quality": {
+        "dataset": "allocation",
+        "status": "not_applicable",
+        "row_count": 0,
+        "errors": [],
+        "warnings": [],
+        "metrics": {}
+      },
+      "files": []
+    },
+    "industry": {
+      "status": "missing",
+      "paths": [],
+      "file_count": 0,
+      "row_count": 0,
+      "file_bytes": 0,
+      "columns": [],
+      "schema_consistent": true,
+      "missing_required_columns": [],
+      "fund_count": 0,
+      "date_coverage": {},
+      "quality": {
+        "dataset": "industry",
+        "status": "not_applicable",
+        "row_count": 0,
+        "errors": [],
+        "warnings": [],
+        "metrics": {}
+      },
+      "files": []
+    },
+    "fees": {
+      "status": "missing",
+      "paths": [],
+      "file_count": 0,
+      "row_count": 0,
+      "file_bytes": 0,
+      "columns": [],
+      "schema_consistent": true,
+      "missing_required_columns": [],
+      "fund_count": 0,
+      "date_coverage": {},
+      "quality": {
+        "dataset": "fees",
+        "status": "not_applicable",
+        "row_count": 0,
+        "errors": [],
+        "warnings": [],
+        "metrics": {}
+      },
+      "files": []
+    },
+    "profile": {
+      "status": "missing",
+      "paths": [],
+      "file_count": 0,
+      "row_count": 0,
+      "file_bytes": 0,
+      "columns": [],
+      "schema_consistent": true,
+      "missing_required_columns": [],
+      "fund_count": 0,
+      "date_coverage": {},
+      "quality": {
+        "dataset": "profile",
+        "status": "not_applicable",
+        "row_count": 0,
+        "errors": [],
+        "warnings": [],
+        "metrics": {}
+      },
+      "files": []
+    },
+    "performance": {
+      "status": "missing",
+      "paths": [],
+      "file_count": 0,
+      "row_count": 0,
+      "file_bytes": 0,
+      "columns": [],
+      "schema_consistent": true,
+      "missing_required_columns": [],
+      "fund_count": 0,
+      "date_coverage": {},
+      "quality": {
+        "dataset": "performance",
+        "status": "not_applicable",
+        "row_count": 0,
+        "errors": [],
+        "warnings": [],
+        "metrics": {}
+      },
+      "files": []
+    },
+    "source_events": {
+      "status": "missing",
+      "paths": [],
+      "file_count": 0,
+      "row_count": 0,
+      "file_bytes": 0,
+      "columns": [],
+      "schema_consistent": true,
+      "missing_required_columns": [],
+      "fund_count": 0,
+      "date_coverage": {},
+      "quality": {
+        "dataset": "source_events",
+        "status": "not_applicable",
+        "row_count": 0,
+        "errors": [],
+        "warnings": [],
+        "metrics": {}
+      },
+      "files": []
+    },
+    "research_observations": {
+      "status": "missing",
+      "paths": [],
+      "file_count": 0,
+      "row_count": 0,
+      "file_bytes": 0,
+      "columns": [],
+      "schema_consistent": true,
+      "missing_required_columns": [],
+      "fund_count": 0,
+      "date_coverage": {
+        "observed_at": {
+          "coverage_count": 0,
+          "row_count_with_column": 0,
+          "coverage": 0.0,
+          "first": null,
+          "last": null,
+          "age_days_reference_date": null,
+          "future_date_count": 0
+        },
+        "published_at": {
+          "coverage_count": 0,
+          "row_count_with_column": 0,
+          "coverage": 0.0,
+          "first": null,
+          "last": null,
+          "age_days_reference_date": null,
+          "future_date_count": 0
+        },
+        "ingested_at": {
+          "coverage_count": 0,
+          "row_count_with_column": 0,
+          "coverage": 0.0,
+          "first": null,
+          "last": null,
+          "age_days_reference_date": null,
+          "future_date_count": 0
+        },
+        "effective_date": {
+          "coverage_count": 0,
+          "row_count_with_column": 0,
+          "coverage": 0.0,
+          "first": null,
+          "last": null,
+          "age_days_reference_date": null,
+          "future_date_count": 0
+        },
+        "observed_date": {
+          "coverage_count": 0,
+          "row_count_with_column": 0,
+          "coverage": 0.0,
+          "first": null,
+          "last": null,
+          "age_days_reference_date": null,
+          "future_date_count": 0
+        }
+      },
+      "quality": {
+        "dataset": "research_observations",
+        "status": "not_applicable",
+        "row_count": 0,
+        "errors": [],
+        "warnings": [],
+        "metrics": {}
+      },
+      "files": []
+    },
+    "quality_reports": {
+      "status": "missing",
+      "paths": [],
+      "file_count": 0,
+      "row_count": 0,
+      "file_bytes": 0,
+      "columns": [],
+      "schema_consistent": true,
+      "missing_required_columns": [],
+      "fund_count": 0,
+      "date_coverage": {},
+      "quality": {
+        "dataset": "quality_reports",
+        "status": "not_applicable",
+        "row_count": 0,
+        "errors": [],
+        "warnings": [],
+        "metrics": {}
+      },
+      "files": []
+    }
+  }
+}

@@ -11,15 +11,15 @@ exclude = []
 nav = true            # NAV: chụp hằng ngày (data/nav_snapshots.csv) + lịch sử dài tải 1 lần (data/nav.csv)
 allocation = true     # cơ cấu tài sản: cổ phiếu/trái phiếu/tiền (data/allocation.csv)
 industry = true       # tỷ trọng theo ngành (data/industry.csv)
-bonds = true          # top trái phiếu nắm giữ + thay đổi MUA/BÁN (data/bonds/*.csv)
+bonds = true          # top trái phiếu nắm giữ + thay đổi khối lượng suy luận (data/bonds/*.csv)
 fees = true           # biểu phí mua/bán/chuyển đổi (data/fees.csv)
 profile = true        # hồ sơ quỹ ít đổi: phí quản lý, giao dịch tối thiểu, website (data/profile.csv)
 performance = false   # hiệu suất 1M-60M do Fmarket công bố, đổi hằng ngày (data/performance.csv); tự tính được từ NAV
 
 [thresholds]
-# Quỹ có KL cổ phiếu thay đổi từ ngưỡng này trở lên mới tính là MUA/BÁN (đơn vị: %)
+# Ngưỡng thay đổi khối lượng tương đối sau proxy quy mô để hiển thị vị thế tăng/giảm suy luận (%)
 min_volume_change_pct = 5.0
-# Chỉ dùng khi thiếu dữ liệu khối lượng: tỷ trọng thay đổi từ ngưỡng này (điểm %)
+# Chỉ dùng để hiển thị tỷ trọng đổi CHƯA XÁC NHẬN khi thiếu khối lượng; không gán MUA/BÁN
 min_weight_delta_pp = 0.5
 
 [corporate_action]
