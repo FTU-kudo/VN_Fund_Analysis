@@ -1,0 +1,40 @@
+# Cấu hình VN_Fund_Analysis. Sửa file này, không cần sửa code.
+
+[funds]
+# Loại quỹ theo mã của Fmarket: STOCK (cổ phiếu), BALANCED (cân bằng), BOND (trái phiếu, gồm cả quỹ MMF)
+asset_codes = ["STOCK", "BALANCED", "BOND"]
+# Mã quỹ muốn bỏ qua (ví dụ ["VCBFTBF"])
+exclude = []
+
+[collect]
+# Bảng dữ liệu bổ sung thu cho MỌI quỹ ở trên (đặt false để tắt)
+nav = true            # NAV: chụp hằng ngày (data/nav_snapshots.csv) + lịch sử dài tải 1 lần (data/nav.csv)
+allocation = true     # cơ cấu tài sản: cổ phiếu/trái phiếu/tiền (data/allocation.csv)
+industry = true       # tỷ trọng theo ngành (data/industry.csv)
+bonds = true          # top trái phiếu nắm giữ + thay đổi MUA/BÁN (data/bonds/*.csv)
+fees = true           # biểu phí mua/bán/chuyển đổi (data/fees.csv)
+profile = true        # hồ sơ quỹ ít đổi: phí quản lý, giao dịch tối thiểu, website (data/profile.csv)
+performance = false   # hiệu suất 1M-60M do Fmarket công bố, đổi hằng ngày (data/performance.csv); tự tính được từ NAV
+
+[thresholds]
+# Quỹ có KL cổ phiếu thay đổi từ ngưỡng này trở lên mới tính là MUA/BÁN (đơn vị: %)
+min_volume_change_pct = 5.0
+# Chỉ dùng khi thiếu dữ liệu khối lượng: tỷ trọng thay đổi từ ngưỡng này (điểm %)
+min_weight_delta_pp = 0.5
+
+[corporate_action]
+# Nếu >= min_funds quỹ cùng đổi KL một mã với mức gần như nhau thì nghi là quyền (cổ tức cổ phiếu, thưởng, chia tách)
+min_funds = 3
+spread_pct = 1.0
+min_change_pct = 3.0
+lookback_days = 7
+
+[watchlist]
+tickers = ["FPT", "HPG", "MBB"]
+
+[report]
+top_n = 10
+
+[http]
+delay_seconds = 1.0
+timeout_seconds = 30
