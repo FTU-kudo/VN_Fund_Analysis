@@ -1,0 +1,8 @@
+# Local dashboard exports are rebuilt by the Pages workflow.
+/dashboard/data/
+
+# Python build/test artifacts.
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/

@@ -181,6 +181,13 @@ def validate_holdings(frame: pd.DataFrame | None, coverage_type: str = "top_n") 
     return _finish(report, findings)
 
 
+def validate_bond_holdings(frame: pd.DataFrame | None, coverage_type: str = "top_n") -> QualityReport:
+    """Validate bond holdings with the holdings rules but retain bond-specific identity."""
+    report = validate_holdings(frame, coverage_type=coverage_type)
+    report.dataset = "fund_bond_holdings"
+    return report
+
+
 def validate_nav(frame: pd.DataFrame | None, key_columns: tuple[str, ...] = ("fund", "date")) -> QualityReport:
     report, findings = _report("fund_nav", frame)
     if frame is None or frame.empty or report.status == "invalid":
@@ -206,6 +213,21 @@ def validate_nav(frame: pd.DataFrame | None, key_columns: tuple[str, ...] = ("fu
                            "first_date": str(pd.to_datetime(frame.date, errors="coerce").min().date()) if frame.date.notna().any() else None,
                            "last_date": str(pd.to_datetime(frame.date, errors="coerce").max().date()) if frame.date.notna().any() else None})
     return _finish(report, findings)
+
+
+def validate_nav_snapshot(frame: pd.DataFrame | None) -> QualityReport:
+    """Validate observed NAV snapshots and explicitly retain unknown effective dates."""
+    report = validate_nav(frame)
+    report.dataset = "nav_snapshots"
+    if isinstance(frame, pd.DataFrame) and not frame.empty:
+        report.metrics["effective_date_status"] = "unknown"
+        report.metrics["effective_date_unknown_rows"] = len(frame)
+        report.findings.append(QualityFinding(
+            "effective_date_unknown", "warning",
+            "Snapshot dates are observation dates; NAV effective dates are not established by this file.",
+            len(frame),
+        ))
+    return report
 
 
 def validate_allocation(frame: pd.DataFrame | None) -> QualityReport:

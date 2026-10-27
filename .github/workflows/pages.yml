@@ -1,0 +1,103 @@
+name: Static research dashboard
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "dashboard/**"
+      - "data/**"
+      - "vnfa/dashboard_export.py"
+      - "vnfa/diff.py"
+      - "vnfa/fmarket.py"
+      - "vnfa/inventory.py"
+      - "vnfa/pipeline.py"
+      - "vnfa/provenance.py"
+      - "vnfa/quality.py"
+      - "vnfa/store.py"
+      - "scripts/run_daily.py"
+      - ".github/workflows/daily.yml"
+      - "scripts/export_dashboard.py"
+      - "requirements.txt"
+      - "tests/**"
+      - ".github/workflows/pages.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "dashboard/**"
+      - "data/**"
+      - "vnfa/dashboard_export.py"
+      - "vnfa/diff.py"
+      - "vnfa/fmarket.py"
+      - "vnfa/inventory.py"
+      - "vnfa/pipeline.py"
+      - "vnfa/provenance.py"
+      - "vnfa/quality.py"
+      - "vnfa/store.py"
+      - "scripts/run_daily.py"
+      - ".github/workflows/daily.yml"
+      - "scripts/export_dashboard.py"
+      - "requirements.txt"
+      - "tests/**"
+      - ".github/workflows/pages.yml"
+  # Daily's GITHUB_TOKEN commit does not trigger a second push workflow.
+  # A successful run rebuilds Pages from the new data committed to the default branch.
+  workflow_run:
+    workflows: ["Daily fund holdings check (all funds)"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == github.event.repository.default_branch)
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install repository dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Set up Node.js for dependency-free UI tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run repository tests
+        run: python -m pytest -q
+      - name: Test static dashboard utilities
+        run: node --test tests/test_dashboard_ui.mjs
+      - name: Export sanitized static data
+        run: python scripts/export_dashboard.py
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: dashboard
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure Pages
+        uses: actions/configure-pages@v6
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

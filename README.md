@@ -6,6 +6,26 @@ Mỗi lần chạy thu top 10 cổ phiếu, top trái phiếu, cơ cấu tài s�
 
 Audit kiến trúc và giới hạn: [`docs/AUDIT_2026-10-27.md`](docs/AUDIT_2026-10-27.md). Tranche 2, PIT/provenance và bước tiếp theo: [`docs/TRANCHE_2_DATA_FOUNDATION_2026-10-27.md`](docs/TRANCHE_2_DATA_FOUNDATION_2026-10-27.md). Inventory thực tế: [`docs/DATA_INVENTORY_2026-10-27.md`](docs/DATA_INVENTORY_2026-10-27.md). Đây là pipeline nghiên cứu, chưa phải hệ thống tạo khuyến nghị hoặc backtest đã xác thực.
 
+## Static research dashboard (GitHub Pages)
+
+Bảng điều khiển nghiên cứu tĩnh triển khai từ `dashboard/` và hỗ trợ project-site path `/VN_Fund_Analysis/`. UI tiếng Việt chạy bằng HTML/CSS/JavaScript thuần, không có dependency build phía browser và không gọi Fmarket/API có xác thực. Các view gồm tổng quan, quỹ, holdings/sự kiện danh mục, nghiên cứu mã, so sánh NAV cùng nhóm, data quality, pipeline health và methodology; bộ lọc, sắp xếp, phân trang, liên kết chi tiết và query URL có thể chia sẻ. Watchlist được lưu cục bộ trong browser.
+
+Exporter chỉ đọc `data/` hiện có và tạo `dashboard/data/` JSON có manifest schema-versioned:
+
+```bash
+pip install -r requirements.txt
+python scripts/export_dashboard.py
+python -m http.server 8000 --directory dashboard
+```
+
+Mở `http://localhost:8000/` để xem bản local. Khi `data/` không có hoặc dataset thiếu, dashboard hiển thị trạng thái `missing`/`empty`/`unavailable` thay vì tạo mẫu. Checkout hiện tại **không có thư mục `data/`**, vì vậy không có quỹ, NAV, holdings hay kết quả ingest thực tế để hiển thị.
+
+Artifact export chỉ gồm latest holdings snapshot theo fund/source, NAV trong tối đa 5 năm gần nhất, tối đa 25.000 portfolio events trong cửa sổ 5 năm, tối đa 2.000 source-request records gần nhất, latest quality report theo dataset/fund (tối đa 10.000), factsheet block mới nhất, validation và metadata nguồn đã sanitize. CSV archive/lịch sử không bị sửa hoặc copy nguyên vẹn sang Pages; raw payload, run ID, credential và body API không được publish. `dashboard/data/` được gitignore và được build lại bởi workflow; hãy xem lại dữ liệu archive và quyền công bố trước khi bật Pages cho repository chứa dữ liệu nhạy cảm.
+
+Để bật deployment: trong **Settings → Pages**, chọn **GitHub Actions** làm source. Sau đó workflow `.github/workflows/pages.yml` chạy test, exporter và deploy khi có thay đổi trên `main`, sau workflow daily thành công, hoặc qua `workflow_dispatch`. PR chỉ build/test, không deploy. Pages phục vụ project-site ở `/VN_Fund_Analysis/`; URLs trong UI tương đối nên không phụ thuộc domain root. Build chỉ đọc file trong repository, không thu thập nguồn live và không cần user-defined secrets; bước deploy dùng quyền `GITHUB_TOKEN`/OIDC do GitHub Actions cấp. Mở **Actions → Static research dashboard** để xem build/deploy result.
+
+Dashboard giữ rõ các giới hạn: Top-N không phải full portfolio; `UNCONFIRMED?` và `WEIGHT_CHANGE?` vẫn chưa xác nhận; top-N exit không chứng minh bán hết; `CORP_ACTION?` còn là heuristic. NAV snapshots là ngày quan sát, không tự xác lập effective date; publication time thiếu không được suy ra. So sánh NAV chỉ dùng ngày nguồn trùng chính xác, cùng category, tối thiểu hai điểm; metric đó không phải total return. Không có ranking, khuyến nghị, valuation/fundamentals hay giao dịch xác nhận. Freshness age được nêu nhưng không gắn `stale` khi chưa cấu hình SLA. Status tổng thể GitHub Actions luôn `unknown` nếu không có metadata workflow đáng tin cậy được lưu; thành công của request/collector không chứng minh job đã hoàn tất.
+
 ## Cách phát hiện thay đổi vị thế
 
 | Nhãn | Ý nghĩa |
@@ -24,6 +44,8 @@ Giá trị ước tính = phần khối lượng còn lại sau điều chỉnh 
 ```
 VN_Fund_Analysis/
 ├── .github/workflows/daily.yml    # chạy 08:30 giờ VN hằng ngày + chạy tay
+├── .github/workflows/pages.yml    # test, export JSON tĩnh và deploy GitHub Pages
+├── dashboard/                    # UI nghiên cứu static, responsive; dashboard/data/ được build
 ├── config.toml                    # ngưỡng, loại quỹ, watchlist
 ├── vnfa/
 │   ├── fmarket.py                 # client + parser Fmarket, source-event metadata
@@ -33,6 +55,7 @@ VN_Fund_Analysis/
 │   ├── provenance.py              # source/observation/quality sidecar append-only
 │   ├── diagnostics.py             # chẩn đoán nguồn có phân loại kết quả
 │   ├── inventory.py               # kiểm kê dữ liệu có thật trên đĩa
+│   ├── dashboard_export.py        # projection JSON compact, whitelist/sanitize; không gọi API
 │   ├── diff.py                    # so sánh thay đổi vị thế suy luận, PRORATA, cờ quyền
 │   ├── pipeline.py                # ghi snapshot + so sánh (dùng chung)
 │   ├── report.py / notify.py      # báo cáo Markdown, Telegram
@@ -41,6 +64,7 @@ VN_Fund_Analysis/
 │   ├── run_daily.py               # lệnh chạy hằng ngày (mọi quỹ, mọi bảng)
 │   ├── diagnose_sources.py        # probe Fmarket, phân loại auth/network/schema/rate-limit/empty
 │   ├── data_inventory.py          # inventory JSON/Markdown dựa trên CSV hiện có
+│   ├── export_dashboard.py        # tạo dashboard/data/ từ archive hiện có (không sửa CSV)
 │   ├── analyze_reaction.py        # phản ứng của quỹ trước một mốc thị trường
 │   ├── import_full_holdings.py    # nhập danh mục ĐẦY ĐỦ từ báo cáo chính thức (vd. DCDS)
 │   ├── backfill_hat_ccq.py        # nạp lịch sử từ 16/05/2026 (chạy 1 lần)

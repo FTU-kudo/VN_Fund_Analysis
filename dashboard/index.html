@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="Bảng điều khiển nghiên cứu quỹ Việt Nam — minh bạch nguồn, thời điểm và giới hạn dữ liệu.">
+  <title>VN Fund Research — Dashboard</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Bỏ qua điều hướng</a>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Điều hướng chính">
+      <a class="brand" href="./?view=overview" data-route aria-label="VN Fund Research, trang tổng quan">
+        <span class="brand-mark" aria-hidden="true">VN</span>
+        <span class="brand-copy"><strong>Fund Research</strong><small>RESEARCH WORKSPACE</small></span>
+      </a>
+      <div class="sidebar-label">KHÁM PHÁ</div>
+      <nav class="primary-nav">
+        <a href="?view=overview" data-route data-view="overview"><span class="nav-glyph" aria-hidden="true">◫</span>Tổng quan</a>
+        <a href="?view=funds" data-route data-view="funds"><span class="nav-glyph" aria-hidden="true">▤</span>Quỹ đầu tư</a>
+        <a href="?view=holdings" data-route data-view="holdings"><span class="nav-glyph" aria-hidden="true">⇄</span>Danh mục &amp; thay đổi</a>
+        <a href="?view=stocks" data-route data-view="stocks"><span class="nav-glyph" aria-hidden="true">⌕</span>Nghiên cứu mã</a>
+        <a href="?view=compare" data-route data-view="compare"><span class="nav-glyph" aria-hidden="true">▥</span>So sánh quỹ</a>
+      </nav>
+      <div class="sidebar-label sidebar-label-spaced">HỆ THỐNG</div>
+      <nav class="primary-nav">
+        <a href="?view=quality" data-route data-view="quality"><span class="nav-glyph" aria-hidden="true">◎</span>Chất lượng dữ liệu</a>
+        <a href="?view=pipeline" data-route data-view="pipeline"><span class="nav-glyph" aria-hidden="true">⌁</span>Sức khỏe pipeline</a>
+        <a href="?view=methodology" data-route data-view="methodology"><span class="nav-glyph" aria-hidden="true">ⓘ</span>Phương pháp</a>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="privacy-note"><span class="note-icon" aria-hidden="true">i</span><p>Dữ liệu là quan sát và suy luận nghiên cứu — không phải khuyến nghị đầu tư.</p></div>
+        <a class="github-link" href="https://github.com/FTU-kudo/VN_Fund_Analysis" target="_blank" rel="noreferrer">Mã nguồn dự án <span aria-hidden="true">↗</span></a>
+      </div>
+    </aside>
+
+    <main class="main-content" id="main-content" tabindex="-1">
+      <header class="topbar">
+        <div class="topbar-heading">
+          <p class="eyebrow">VN FUND ANALYSIS <span class="eyebrow-separator">/</span> RESEARCH</p>
+          <h1 id="page-title">Tổng quan</h1>
+        </div>
+        <div class="topbar-actions">
+          <span class="static-badge"><span class="status-dot" aria-hidden="true"></span>Dữ liệu tĩnh · không gọi nguồn live</span>
+          <button class="icon-button" type="button" data-action="reload" aria-label="Tải lại dữ liệu dashboard" title="Tải lại dữ liệu">↻</button>
+        </div>
+      </header>
+
+      <div id="load-alert" class="load-alert" role="status" hidden></div>
+      <div id="app" aria-live="polite" aria-busy="true">
+        <div class="loading-panel"><span class="loading-mark" aria-hidden="true">VN</span><p>Đang tải dữ liệu nghiên cứu…</p></div>
+      </div>
+
+      <footer class="site-footer">
+        <span>VN_Fund_Analysis · Research dashboard</span>
+        <span id="footer-generated">Thời điểm tạo dữ liệu: chưa xác định</span>
+      </footer>
+    </main>
+  </div>
+  <script type="module" src="./app.mjs"></script>
+</body>
+</html>

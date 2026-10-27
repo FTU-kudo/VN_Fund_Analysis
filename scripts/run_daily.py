@@ -23,8 +23,8 @@ from vnfa.fmarket import (ICT, FmarketClient, parse_allocation, parse_bonds, par
 from vnfa.notify import send_telegram  # noqa: E402
 from vnfa.pipeline import ingest_fund, recent_changes  # noqa: E402
 from vnfa.provenance import ProvenanceStore, observations_from_frame  # noqa: E402
-from vnfa.quality import (require_valid, validate_allocation, validate_fund_universe,  # noqa: E402
-                          validate_holdings, validate_nav)
+from vnfa.quality import (require_valid, validate_allocation, validate_bond_holdings,  # noqa: E402
+                          validate_fund_universe, validate_holdings, validate_nav)
 from vnfa.report import render_report, render_text  # noqa: E402
 from vnfa.store import Store, TableStore  # noqa: E402
 
@@ -131,7 +131,7 @@ def run(cfg: dict, client, store: Store, observed_date: str, limit: int | None =
             allocation_quality = None
             bond_quality = None
             if parsed_bonds is not None:
-                bond_quality = validate_holdings(parsed_bonds, coverage_type="top_n")
+                bond_quality = validate_bond_holdings(parsed_bonds, coverage_type="top_n")
                 _record_quality(bond_quality, quality_reports, fund=code)
                 if bond_quality.errors:
                     parsed_bonds = None

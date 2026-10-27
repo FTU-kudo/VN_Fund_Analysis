@@ -12,7 +12,8 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 from .provenance import OBSERVATION_COLUMNS, QUALITY_COLUMNS, SOURCE_COLUMNS
-from .quality import QualityReport, validate_allocation, validate_fund_universe, validate_holdings, validate_nav
+from .quality import (QualityReport, validate_allocation, validate_bond_holdings,
+                      validate_fund_universe, validate_holdings, validate_nav, validate_nav_snapshot)
 
 VIETNAM = ZoneInfo("Asia/Ho_Chi_Minh")
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -61,9 +62,10 @@ def _combine_quality(dataset: str, reports: list[QualityReport], row_count: int)
               for (code, severity, message), count in findings.items() if severity == "error"]
     warnings = [{"code": code, "severity": severity, "message": message, "count": count}
                 for (code, severity, message), count in findings.items() if severity == "warning"]
+    structural_warnings = [finding for finding in warnings if finding["code"] != "effective_date_unknown"]
     if errors:
         status = "invalid"
-    elif any(report.status in {"partial", "unavailable"} for report in reports) or warnings:
+    elif any(report.status in {"partial", "unavailable"} for report in reports) or structural_warnings:
         status = "partial"
     else:
         status = "valid"
@@ -80,13 +82,15 @@ def _validation_reports(name: str, frames: list[tuple[Path, pd.DataFrame]]) -> l
         elif name in {"fund_holdings", "fund_bond_holdings"}:
             group_cols = [column for column in ("observed_date", "content_hash") if column in frame.columns]
             blocks = [part for _, part in frame.groupby(group_cols, dropna=False, sort=False)] if group_cols else [frame]
-            reports.extend(validate_holdings(block, coverage_type="top_n") for block in blocks)
+            validator = validate_bond_holdings if name == "fund_bond_holdings" else validate_holdings
+            reports.extend(validator(block, coverage_type="top_n") for block in blocks)
         elif name == "full_holdings":
             group_cols = [column for column in ("fund", "period_end") if column in frame.columns]
             blocks = [part for _, part in frame.groupby(group_cols, dropna=False, sort=False)] if group_cols else [frame]
             reports.extend(validate_holdings(block, coverage_type="full") for block in blocks)
         elif name in {"nav_history", "nav_snapshots"}:
-            reports.append(validate_nav(frame))
+            validator = validate_nav_snapshot if name == "nav_snapshots" else validate_nav
+            reports.append(validator(frame))
         elif name == "allocation":
             reports.append(validate_allocation(frame))
     return reports
