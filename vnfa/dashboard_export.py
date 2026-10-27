@@ -6,6 +6,7 @@ provenance payloads are not published, and legacy records are never modified.
 """
 from __future__ import annotations
 
+import functools
 import hashlib
 import os
 import json
@@ -22,6 +23,7 @@ import pandas as pd
 
 from .inventory import build_data_inventory
 from .provenance import OBSERVATION_COLUMNS, QUALITY_COLUMNS, SOURCE_COLUMNS
+from .store import read_csv_safe
 
 VIETNAM = ZoneInfo("Asia/Ho_Chi_Minh")
 UTC = timezone.utc
@@ -101,6 +103,11 @@ def _date(value: Any) -> str | None:
     text = _text(value)
     if not text:
         return None
+    if len(text) == 10 and text[4] == "-" and text[7] == "-":
+        try:
+            return date.fromisoformat(text).isoformat()
+        except ValueError:
+            pass
     try:
         parsed = pd.to_datetime(text, errors="coerce", utc=True)
     except (TypeError, ValueError, OverflowError):
@@ -173,7 +180,7 @@ def _read_csv(path: Path) -> tuple[pd.DataFrame | None, str]:
     if not path.exists():
         return None, "missing"
     try:
-        frame = pd.read_csv(path, sep=";", dtype=str, keep_default_na=True)
+        frame = read_csv_safe(path, sep=";", dtype=str)
     except Exception:
         return None, "unreadable"
     return frame, "empty" if frame.empty else "available"
@@ -359,6 +366,41 @@ def _latest_provenance(records: list[dict[str, Any]]) -> dict[tuple[str, str], d
     return latest
 
 
+def _index_provenance(records: list[dict[str, Any]]) -> tuple[
+    dict[tuple[str, str, str, str], dict[str, Any]],
+    dict[tuple[str, str, str, str], dict[str, Any]],
+]:
+    """Build O(1) lookup maps keyed by `(dataset, fund, record_key_upper, day)`.
+
+    `explicit_index` matches an observation's explicit `observed_date`. `timestamp_index`
+    provides a strictly timestamp-backed fallback keyed by the Vietnam local day of
+    `observed_at` when `observed_date` was omitted on a live ingestion run; it NEVER uses
+    `effective_date`, `published_at`, or file metadata.
+    """
+    explicit_index: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    timestamp_index: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    for record in records:
+        dataset = record.get("dataset")
+        fund = record.get("fund")
+        key_upper = (record.get("record_key") or "").upper()
+        if not dataset or not fund or not key_upper:
+            continue
+        obs_date = record.get("observed_date")
+        if obs_date:
+            explicit_index[(dataset, fund, key_upper, obs_date)] = record
+            continue
+        obs_at = record.get("observed_at")
+        if obs_at:
+            ts = pd.to_datetime(obs_at, errors="coerce", utc=True)
+            if pd.notna(ts):
+                vn_day = ts.tz_convert(VIETNAM).strftime("%Y-%m-%d")
+                derived = dict(record)
+                if not derived.get("observed_date_basis") or derived.get("observed_date_basis") == "unknown":
+                    derived["observed_date_basis"] = "response_observed_at"
+                timestamp_index[(dataset, fund, key_upper, vn_day)] = derived
+    return explicit_index, timestamp_index
+
+
 def _select_latest_snapshot(frame: pd.DataFrame, *, fund_hint: str | None = None) -> pd.DataFrame:
     """Select the latest date/hash block without reordering revisions in the source CSV."""
     if frame.empty:
@@ -404,6 +446,7 @@ def _holdings_records(root: Path, inventory: dict[str, Any], provenance: list[di
     all_paths: list[str] = []
     statuses: list[str] = []
     unexported_source_rows = False
+    explicit_prov, ts_prov = _index_provenance(provenance)
     for pattern, dataset, coverage, asset_class in specs:
         files, unsafe_paths, path_status = _frames(root, pattern)
         all_paths.extend(path.relative_to(root).as_posix() for path, _ in files)
@@ -446,12 +489,12 @@ def _holdings_records(root: Path, inventory: dict[str, Any], provenance: list[di
                     "industry": _text(row.get("industry")),
                     "content_hash": _text(row.get("content_hash")),
                 }
-                # Use only an exact date/key match; otherwise do not imply a time belongs to this row.
-                matches = [p for p in provenance if p.get("dataset") == dataset and p.get("fund") == fund
-                           and (p.get("record_key") or "").upper() == ticker.upper() and p.get("observed_date") == record["observed_date"]
-                           and record["observed_date"] is not None]
-                if matches:
-                    evidence = matches[-1]
+                # Use an exact (dataset, fund, ticker, day) match backed by observed_date or exact observed_at.
+                evidence = None
+                if record["observed_date"] is not None:
+                    lookup_key = (dataset, fund, ticker.upper(), record["observed_date"])
+                    evidence = explicit_prov.get(lookup_key) or ts_prov.get(lookup_key)
+                if evidence is not None:
                     for key in ("observed_at", "published_at", "observed_date_basis", "source",
                                 "source_reference", "data_quality_status", "verification_status"):
                         if evidence.get(key) is not None:
@@ -515,6 +558,7 @@ def _events(root: Path, inventory: dict[str, Any], provenance: list[dict[str, An
                       .head(max_records).sort_values("_source_order").copy())
     frame = frame.drop(columns=["_source_order", "_parsed_event_date"], errors="ignore")
     was_truncated = window_truncated or capped
+    explicit_prov, ts_prov = _index_provenance(provenance)
     records = []
     for row in frame.to_dict(orient="records"):
         action_raw = _text(row.get("action"))
@@ -556,14 +600,21 @@ def _events(root: Path, inventory: dict[str, Any], provenance: list[dict[str, An
             "source_reference": None,
             "is_confirmed_transaction": False,
         }
-        # Attach a source reference only when a recorded observation matches this fund/date.
-        matches = [p for p in provenance if p.get("dataset") in {"fund_holdings", "fund_bond_holdings"}
-                   and p.get("fund") == fund and (p.get("record_key") or "").upper() == (ticker.upper() if ticker else "")
-                   and p.get("observed_date") == date_text and date_text is not None]
-        if matches:
-            event["source_reference"] = matches[-1].get("source_reference")
-            event["observed_at"] = matches[-1].get("observed_at")
-            event["published_at"] = matches[-1].get("published_at")
+        # Attach a source reference only when a recorded observation matches this fund/ticker/date.
+        evidence = None
+        if date_text is not None and fund and ticker:
+            preferred_ds = "fund_bond_holdings" if event.get("asset_class") == "BOND" else "fund_holdings"
+            fallback_ds = "fund_holdings" if preferred_ds == "fund_bond_holdings" else "fund_bond_holdings"
+            ticker_upper = ticker.upper()
+            for ds in (preferred_ds, fallback_ds):
+                lookup_key = (ds, fund, ticker_upper, date_text)
+                evidence = explicit_prov.get(lookup_key) or ts_prov.get(lookup_key)
+                if evidence is not None:
+                    break
+        if evidence is not None:
+            event["source_reference"] = evidence.get("source_reference")
+            event["observed_at"] = evidence.get("observed_at")
+            event["published_at"] = evidence.get("published_at")
         else:
             event["observed_at"] = None
             event["published_at"] = None
@@ -1386,14 +1437,27 @@ def export_dashboard(data_dir: str | Path, output_dir: str | Path, *, generated_
     return manifest
 
 
+_NON_ALNUM_RE = re.compile(r"[^a-z0-9]")
+_PROHIBITED_KEY_PARTS = (
+    "token", "password", "authorization", "cookie", "secret", "apikey",
+    "credential", "privatekey", "rawbody", "payloadjson", "requestbody", "responsebody",
+)
+
+
+@functools.lru_cache(maxsize=2048)
+def _normalized_prohibited_key(key: str) -> str | None:
+    normalized = _NON_ALNUM_RE.sub("", key.lower())
+    if any(part in normalized for part in _PROHIBITED_KEY_PARTS):
+        return normalized
+    return None
+
+
 def _contains_sensitive_key(value: Any) -> bool:
-    prohibited_parts = ("token", "password", "authorization", "cookie", "secret", "apikey",
-                        "credential", "privatekey", "rawbody", "payloadjson", "requestbody", "responsebody")
     if isinstance(value, dict):
         for key, item in value.items():
-            normalized = re.sub(r"[^a-z0-9]", "", str(key).lower())
-            if any(part in normalized for part in prohibited_parts):
-                if normalized == "credentialsexported" and item is False:
+            matched = _normalized_prohibited_key(str(key))
+            if matched is not None:
+                if matched == "credentialsexported" and item is False:
                     continue  # Explicit public policy boolean; no credential value is present.
                 return True
             if _contains_sensitive_key(item):

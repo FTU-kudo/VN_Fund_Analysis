@@ -24,14 +24,20 @@ _STR = {"observed_date": str, "fund": str, "ticker": str, "content_hash": str, "
 ID_COLUMNS = frozenset({"code", "fund", "ticker"})
 
 
-def read_csv_safe(path: str | Path, *, sep: str = SEP, dtype: Any = None) -> pd.DataFrame:
+def read_csv_safe(path: Any, *, sep: str = SEP, dtype: Any = None) -> pd.DataFrame:
     """Read semicolon CSV while preserving literal 'NA'/'NAN'/'NULL' in identifier columns.
 
     Empty strings remain missing everywhere, and all non-identifier columns retain
     pandas' standard NA token semantics so missing values are never turned into text/zero.
     """
-    p = Path(path)
-    header = pd.read_csv(p, sep=sep, nrows=0)
+    if hasattr(path, "seek"):
+        pos = path.tell() if hasattr(path, "tell") else 0
+        header = pd.read_csv(path, sep=sep, nrows=0)
+        path.seek(pos)
+        source = path
+    else:
+        source = Path(path)
+        header = pd.read_csv(source, sep=sep, nrows=0)
     columns = list(header.columns)
     na_map = {col: {""} if col in ID_COLUMNS else STR_NA_VALUES for col in columns}
     effective_dtype = dtype
@@ -40,7 +46,7 @@ def read_csv_safe(path: str | Path, *, sep: str = SEP, dtype: Any = None) -> pd.
     elif dtype is None:
         id_present = {col: str for col in columns if col in ID_COLUMNS}
         effective_dtype = id_present or None
-    return pd.read_csv(p, sep=sep, dtype=effective_dtype, keep_default_na=False, na_values=na_map)
+    return pd.read_csv(source, sep=sep, dtype=effective_dtype, keep_default_na=False, na_values=na_map)
 
 
 def atomic_write_csv(df: pd.DataFrame, path: str | Path, *, sep: str = SEP) -> None:

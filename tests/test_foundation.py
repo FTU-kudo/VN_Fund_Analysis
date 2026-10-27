@@ -539,3 +539,114 @@ def test_data_inventory_uses_only_present_files_and_reports_real_coverage(tmp_pa
     text = render_inventory_markdown(inventory)
     assert "top_n_partial_censored" not in text  # machine-readable qualification stays in JSON
     assert "schema_mismatch" in text
+
+
+def test_compact_provenance_reconciles_nav_series_and_enforces_90d_budget(tmp_path):
+    import importlib.util
+    import pytest
+    from vnfa.provenance import observations_from_frame
+
+    spec_c = importlib.util.spec_from_file_location("compact_provenance", "scripts/compact_provenance.py")
+    cp = importlib.util.module_from_spec(spec_c)
+    spec_c.loader.exec_module(cp)
+
+    spec_b = importlib.util.spec_from_file_location("check_data_budget", "scripts/check_data_budget.py")
+    cb = importlib.util.module_from_spec(spec_b)
+    spec_b.loader.exec_module(cb)
+
+    data = tmp_path / "data"
+    data.mkdir()
+    nav_df = pd.DataFrame([
+        {"fund": "F1", "date": f"2026-09-{d:02d}", "nav": 10000.0 + d * 10}
+        for d in range(1, 21)
+    ])
+    nav_df.to_csv(data / "nav.csv", sep=";", index=False)
+
+    pstore = ProvenanceStore(data)
+    hold_obs = make_observation(
+        dataset="fund_holdings", fund="F1", record_key="AAA", payload={"weight": 0.1},
+        source="fmarket", source_reference="/products/1", effective_date="2026-09-20",
+        observed_at="2026-09-21T06:00:00Z", observed_date="2026-09-21",
+        observed_date_basis="response_observed_at", data_quality_status="partial",
+    )
+    point_nav_obs = observations_from_frame(
+        nav_df[["date", "nav"]], dataset="nav_history", fund="F1", source="fmarket",
+        source_reference="/product/get-nav-history", observed_at="2026-09-21T06:00:01Z",
+        key_columns=("date",), effective_date_column="date", run_id="run-1",
+        data_quality_status="valid", verification_status="provider_returned_unverified",
+        coverage_type="history_endpoint",
+    )
+    pstore.append_observations([hold_obs, *point_nav_obs], run_id="run-1")
+
+    # Point-level nav_history triggers budget failure until compacted.
+    pre_budget = cb.evaluate_data_budget(data)
+    assert pre_budget["status"] == "fail" and pre_budget["point_level_nav_observations"] == 20
+
+    # Refuses backup directory inside Git repository.
+    with pytest.raises(ValueError, match="Git repository"):
+        cp.compact_observations(data, backup_dir=cp.ROOT / "tmp_forbidden_backup", dry_run=False)
+
+    # Dry-run leaves file untouched.
+    before_bytes = (data / "research_observations.csv").read_bytes()
+    dry = cp.compact_observations(data, dry_run=True)
+    assert dry["dry_run"] is True and dry["nav_point_rows_compacted"] == 20 and dry["after_rows"] == 2
+    assert (data / "research_observations.csv").read_bytes() == before_bytes
+
+    # Live migration writes verified backup + compacts 20 rows -> 1 summary row, preserving fund_holdings verbatim.
+    bdir = tmp_path / "backup_outside_repo"
+    res1 = cp.compact_observations(data, backup_dir=bdir, dry_run=False)
+    assert res1["after_rows"] == 2 and res1["nav_points_accounted_for"] == 20
+    assert (bdir / "research_observations.csv.bak").read_bytes() == before_bytes
+
+    # Pass 2 is 100% idempotent.
+    res2 = cp.compact_observations(data, backup_dir=bdir, dry_run=False)
+    assert res2["already_compact"] is True and res2["after_sha256"] == res1["after_sha256"]
+    assert select_as_of(ProvenanceStore(data, write=False).read_observations(), "2026-09-22").shape[0] == 2
+
+    # Repository's real data/ directory passes 90-day budget cleanly (< 25 MB warn, 0 point-level nav obs).
+    repo_budget = cb.evaluate_data_budget("data", warn_mb=25.0, fail_mb=80.0, horizon_days=90)
+    assert repo_budget["status"] == "ok"
+    assert repo_budget["point_level_nav_observations"] == 0
+    assert repo_budget["projected_total_mb"] < 25.0
+
+
+def test_run_daily_records_observed_date_and_nav_history_summary(tmp_path):
+    import importlib.util
+    from vnfa.config import load_config
+    from vnfa.store import Store
+
+    spec = importlib.util.spec_from_file_location("run_daily_prov", "scripts/run_daily.py")
+    rd = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rd)
+
+    class FakeLiveClient:
+        run_id = "run-live-1"
+        last_source_event = {"observed_at": "2026-10-27T06:35:00Z"}
+
+        def list_products(self):
+            return [{"id": 1, "code": "F1", "shortName": "F1", "owner": {"shortName": "CO"},
+                     "dataFundAssetType": {"code": "STOCK"}}]
+
+        def product_detail(self, _):
+            return {"id": 1, "code": "F1", "nav": 12345.0, "owner": {"shortName": "CO"},
+                    "assetType": {"code": "STOCK"},
+                    "topHoldings": [{"stockCode": "AAA", "netAssetPercent": 6.0, "price": 10,
+                                     "volume": 1000, "assetValue": 10_000_000, "type": "STOCK"}]}
+
+        def nav_history(self, _):
+            return pd.DataFrame([
+                {"date": f"2026-10-{d:02d}", "nav": 12000.0 + d}
+                for d in range(1, 16)
+            ])
+
+    cfg = load_config(None)
+    store = Store(tmp_path)
+    info, _ = rd.run(cfg, FakeLiveClient(), store, "2026-10-27")
+    assert info["n_nav_funds"] == 1
+    obs = ProvenanceStore(tmp_path, write=False).read_observations()
+    nav_hist = obs[obs.dataset == "nav_history"]
+    assert len(nav_hist) == 1  # 15 NAV history rows summarized into 1 provenance row!
+    assert str(nav_hist.iloc[0].record_key).startswith("summary:")
+    hold_obs = obs[obs.dataset == "fund_holdings"]
+    assert hold_obs.iloc[0].observed_date == "2026-10-27"
+    assert hold_obs.iloc[0].observed_date_basis == "response_observed_at"
