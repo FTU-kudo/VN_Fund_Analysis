@@ -14,6 +14,7 @@ DEFAULTS = {
     "watchlist": {"tickers": ["FPT", "HPG", "MBB"]},
     "report": {"top_n": 10},
     "http": {"delay_seconds": 1.0, "timeout_seconds": 30},
+    "freshness": {"enabled": False},
 }
 
 

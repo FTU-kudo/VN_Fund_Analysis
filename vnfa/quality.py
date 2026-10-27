@@ -115,7 +115,11 @@ def validate_fund_universe(frame: pd.DataFrame | None) -> QualityReport:
     return _finish(report, findings)
 
 
-def validate_holdings(frame: pd.DataFrame | None, coverage_type: str = "top_n") -> QualityReport:
+STRUCTURAL_WARNING_CODES = frozenset({"censored_top_n", "effective_date_unknown"})
+
+
+def validate_holdings(frame: pd.DataFrame | None, coverage_type: str = "top_n",
+                      *, optional_price_columns: frozenset[str] = frozenset()) -> QualityReport:
     report, findings = _report("fund_holdings", frame)
     if frame is None or frame.empty or report.status == "invalid":
         return report
@@ -148,7 +152,8 @@ def validate_holdings(frame: pd.DataFrame | None, coverage_type: str = "top_n") 
     }
     for column in ("volume", "price_k", "asset_value"):
         if column not in frame.columns:
-            findings.append(QualityFinding(f"missing_column_{column}", "warning", f"{column} is not available", len(frame)))
+            if column not in optional_price_columns:
+                findings.append(QualityFinding(f"missing_column_{column}", "warning", f"{column} is not available", len(frame)))
             metrics[f"{column}_coverage"] = 0.0
             continue
         values = pd.to_numeric(frame[column], errors="coerce")
@@ -160,7 +165,7 @@ def validate_holdings(frame: pd.DataFrame | None, coverage_type: str = "top_n") 
         if negative:
             findings.append(QualityFinding(f"negative_{column}", "error", f"{column} cannot be negative", negative))
         missing = int(values.isna().sum())
-        if missing:
+        if missing and column not in optional_price_columns:
             findings.append(QualityFinding(f"missing_{column}", "warning", f"{column} is missing; it is not treated as zero", missing))
         metrics[f"{column}_coverage"] = float(values.notna().mean())
 
@@ -182,9 +187,11 @@ def validate_holdings(frame: pd.DataFrame | None, coverage_type: str = "top_n") 
 
 
 def validate_bond_holdings(frame: pd.DataFrame | None, coverage_type: str = "top_n") -> QualityReport:
-    """Validate bond holdings with the holdings rules but retain bond-specific identity."""
-    report = validate_holdings(frame, coverage_type=coverage_type)
+    """Validate bond holdings while treating unprovided bond `price_k` as structural, not anomalous."""
+    report = validate_holdings(frame, coverage_type=coverage_type, optional_price_columns=frozenset({"price_k"}))
     report.dataset = "fund_bond_holdings"
+    if isinstance(frame, pd.DataFrame) and not frame.empty and report.metrics.get("price_k_coverage", 0.0) == 0.0:
+        report.metrics["price_k_structural_limitation"] = "not_provided_by_fmarket_bond_schema"
     return report
 
 

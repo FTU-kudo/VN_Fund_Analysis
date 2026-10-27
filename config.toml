@@ -38,3 +38,13 @@ top_n = 10
 [http]
 delay_seconds = 1.0
 timeout_seconds = 30
+
+[freshness]
+# Ngưỡng tuổi dữ liệu tối đa (ngày) đã được chủ repo phê duyệt (2026-10-27).
+# Các dataset không khai báo ngưỡng tại đây giữ trạng thái not_assessed_no_sla.
+enabled = true
+fund_holdings = 45
+fund_bond_holdings = 45
+allocation = 45
+nav_snapshots = 3
+fees = 180

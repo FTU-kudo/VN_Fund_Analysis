@@ -89,7 +89,7 @@ class FmarketClient:
         history = getattr(retries, "history", None)
         return len(history) if history is not None else None
 
-    def _call(self, method: str, path: str, **kw):
+    def _call(self, method: str, path: str, *, fund_code: str | None = None, **kw):
         event = {
             "event_id": None,
             "run_id": self.run_id,
@@ -107,6 +107,7 @@ class FmarketClient:
             "retry_policy": self.retry_policy,
             "retry_attempts": None,
             "ingested_at": None,
+            "fund_code": fund_code,
         }
         response = None
         try:
@@ -201,9 +202,9 @@ class FmarketClient:
         self._mark_last_event("empty_response" if not rows else "success", record_count=len(rows))
         return rows
 
-    def product_detail(self, product_id: int) -> dict:
+    def product_detail(self, product_id: int, *, fund_code: str | None = None) -> dict:
         path = f"/products/{product_id}"
-        data = self._call("GET", path)
+        data = self._call("GET", path, fund_code=fund_code)
         if not isinstance(data, dict):
             self._mark_last_event("schema_error", "schema")
             raise FmarketSchemaError(f"{path}: expected a JSON object")
@@ -213,14 +214,17 @@ class FmarketClient:
         if not any(data.get(key) for key in ("id", "code")):
             self._mark_last_event("schema_error", "schema", record_count=1)
             raise FmarketSchemaError(f"{path}: required product identity fields are missing")
+        if self.last_source_event is not None and not self.last_source_event.get("fund_code") and data.get("code"):
+            self.last_source_event["fund_code"] = str(data["code"])
         self._mark_last_event("success", record_count=1)
         return data
 
-    def nav_history(self, product_id: int, from_date: str = "2014-01-01", to_date: str | None = None) -> pd.DataFrame:
+    def nav_history(self, product_id: int, from_date: str = "2014-01-01", to_date: str | None = None,
+                    *, fund_code: str | None = None) -> pd.DataFrame:
         """Lịch sử NAV/CCQ. Trả về DataFrame [date, nav]."""
         to_date = to_date or datetime.now(ICT).date().isoformat()
         body = {"isAllData": 1, "productId": product_id, "fromDate": from_date, "toDate": to_date}
-        data = self._call("POST", "/product/get-nav-history", json=body)
+        data = self._call("POST", "/product/get-nav-history", fund_code=fund_code, json=body)
         if not isinstance(data, list):
             self._mark_last_event("schema_error", "schema")
             raise FmarketSchemaError("/product/get-nav-history: expected a list")

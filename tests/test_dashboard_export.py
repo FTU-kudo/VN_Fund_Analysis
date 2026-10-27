@@ -379,3 +379,44 @@ def test_holdings_and_events_join_timestamp_provenance_without_explicit_observed
     assert evt["fund"] == "NA" and evt["ticker"] == "NAN"
     assert evt["observed_at"] == "2026-10-27T06:35:00Z"
     assert evt["source_reference"] == "/products/99"
+
+
+def test_export_sanitized_workflow_status_and_sla_stale_issue(tmp_path):
+    import importlib.util
+
+    spec_w = importlib.util.spec_from_file_location("write_wf_status", "scripts/write_workflow_status.py")
+    wf = importlib.util.module_from_spec(spec_w)
+    spec_w.loader.exec_module(wf)
+
+    # Put config.toml in tmp_path so data/ inside tmp_path inherits SLA thresholds.
+    (tmp_path / "config.toml").write_text(
+        "[freshness]\nenabled = true\nallocation = 45\nnav_snapshots = 3\n",
+        encoding="utf-8",
+    )
+    data, output = tmp_path / "data", tmp_path / "public"
+    write_frame(data / "allocation.csv", [{
+        "observed_date": "2026-10-27", "fund": "F1", "asset_code": "STOCK",
+        "asset_name": "CP", "pct": "0.8", "report_date": "2026-08-01", "content_hash": "h1",
+    }])
+    wf.write_workflow_status(
+        data / "workflow_status.json",
+        workflow="daily",
+        conclusion="failure",
+        trigger="schedule",
+        collector_exit_code=1,
+        budget_status="ok",
+        recorded_at="2026-10-27T06:40:00Z",
+    )
+
+    export_dashboard(data, output, generated_at=GENERATED_AT, reference_date=REFERENCE_DATE)
+    pipeline = read_json(output / "pipeline_status.json")["summary"]
+    assert pipeline["overall_workflow_status"] == "failure"
+    assert pipeline["last_known_status"] == "failure"
+    assert pipeline["workflow_status_record"]["collector_exit_code"] == 1
+    assert pipeline["workflow_status_record"]["budget_status"] == "ok"
+
+    quality = read_json(output / "data_quality_summary.json")["summary"]
+    alloc_summary = next(d for d in quality["datasets"] if d["dataset"] == "allocation")
+    assert alloc_summary["freshness_assessment"] == "stale"
+    assert alloc_summary["sla_days"] == 45
+    assert any(issue["issue_id"] == "stale:allocation" for issue in quality["issues"])

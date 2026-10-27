@@ -17,11 +17,12 @@ import pandas as pd
 
 from .store import SEP, atomic_append_csv, read_csv_safe
 
-SOURCE_COLUMNS = [
+SOURCE_COLUMNS_V1 = [
     "event_id", "run_id", "provider", "endpoint", "source_reference", "started_at",
     "observed_at", "completed_at", "status", "error_type", "http_status", "record_count",
     "response_hash", "retry_policy", "retry_attempts", "ingested_at",
 ]
+SOURCE_COLUMNS = [*SOURCE_COLUMNS_V1, "fund_code"]
 OBSERVATION_COLUMNS = [
     "observation_id", "run_id", "dataset", "fund", "record_key", "effective_date",
     "observed_at", "published_at", "ingested_at", "observed_date", "observed_date_basis",
@@ -308,7 +309,13 @@ class ProvenanceStore:
 
     def read_source_events(self) -> pd.DataFrame:
         path = self._path("source_runs.csv")
-        return read_csv_safe(path, sep=SEP, dtype=str) if path.exists() else pd.DataFrame(columns=SOURCE_COLUMNS)
+        if not path.exists():
+            return pd.DataFrame(columns=SOURCE_COLUMNS)
+        frame = read_csv_safe(path, sep=SEP, dtype=str)
+        if list(frame.columns) == SOURCE_COLUMNS_V1:
+            frame = frame.copy()
+            frame["fund_code"] = np.nan
+        return frame
 
     def read_observations(self) -> pd.DataFrame:
         path = self._path("research_observations.csv")

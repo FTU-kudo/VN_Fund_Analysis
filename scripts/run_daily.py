@@ -38,6 +38,15 @@ def _response_observed_at(client) -> str | None:
     return event.get("observed_at") if event else None
 
 
+def _call_client_fund(fn, *args, fund_code: str | None = None):
+    try:
+        return fn(*args, fund_code=fund_code)
+    except TypeError as exc:
+        if "fund_code" in str(exc):
+            return fn(*args)
+        raise
+
+
 def _record_quality(report, reports: list[dict], *, fund: str | None = None, source: str = "fmarket") -> list[str]:
     item = report.to_dict()
     findings = item.pop("errors") + item.pop("warnings")
@@ -95,7 +104,7 @@ def run(cfg: dict, client, store: Store, observed_date: str, limit: int | None =
     for f in funds:
         did_ingest = False
         try:
-            detail = client.product_detail(f["id"])
+            detail = _call_client_fund(client.product_detail, f["id"], fund_code=f.get("code"))
             fund_observed_at = _response_observed_at(client)
             if not isinstance(detail, dict):
                 raise ValueError("Chi tiết quỹ không phải JSON object")
@@ -242,7 +251,7 @@ def run(cfg: dict, client, store: Store, observed_date: str, limit: int | None =
                 # NAV history là dữ liệu bổ sung; lỗi endpoint này không được biến một
                 # lần lấy holdings thành thất bại sau khi snapshot đã ghi.
                 try:
-                    nav_frame = client.nav_history(f["id"])
+                    nav_frame = _call_client_fund(client.nav_history, f["id"], fund_code=code)
                     nav_quality = validate_nav(nav_frame.assign(fund=code))
                     nav_flags = _record_quality(nav_quality, quality_reports, fund=code)
                     require_valid(nav_quality)

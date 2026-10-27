@@ -650,3 +650,122 @@ def test_run_daily_records_observed_date_and_nav_history_summary(tmp_path):
     hold_obs = obs[obs.dataset == "fund_holdings"]
     assert hold_obs.iloc[0].observed_date == "2026-10-27"
     assert hold_obs.iloc[0].observed_date_basis == "response_observed_at"
+
+
+def test_freshness_sla_states_bond_price_noise_and_source_runs_migration(tmp_path, monkeypatch):
+    import importlib.util
+
+    spec_m = importlib.util.spec_from_file_location("migrate_source_runs", "scripts/migrate_source_runs.py")
+    ms = importlib.util.module_from_spec(spec_m)
+    spec_m.loader.exec_module(ms)
+
+    data = tmp_path / "data"
+    (data / "holdings").mkdir(parents=True)
+    (data / "bonds").mkdir(parents=True)
+    pd.DataFrame([{"observed_date": "2026-10-27", "fund": "F1", "ticker": "AAA",
+                   "weight": 0.1, "volume": 100, "price_k": 10, "asset_value": 1000000,
+                   "update_date": "2026-10-15", "content_hash": "h1"}]).to_csv(
+        data / "holdings" / "F1.csv", sep=";", index=False)
+    # Bond holdings structurally lack price_k in Fmarket; must NOT emit missing_price_k anomaly warning!
+    pd.DataFrame([{"observed_date": "2026-10-27", "fund": "F1", "ticker": "BD1",
+                   "weight": 0.1, "volume": 50, "price_k": np.nan, "asset_value": 500000,
+                   "update_date": "2026-10-15", "content_hash": "b1"}]).to_csv(
+        data / "bonds" / "F1.csv", sep=";", index=False)
+    # Stale allocation (report_date 60 days old > 45d SLA)
+    pd.DataFrame([{"observed_date": "2026-10-27", "fund": "F1", "asset_code": "STOCK",
+                   "pct": 0.8, "report_date": "2026-08-25", "content_hash": "a1"}]).to_csv(
+        data / "allocation.csv", sep=";", index=False)
+    # Empty fees dataset (header only) and schema_mismatch nav_snapshots
+    pd.DataFrame(columns=["observed_date", "fund", "type", "fee", "content_hash"]).to_csv(
+        data / "fees.csv", sep=";", index=False)
+    pd.DataFrame([{"fund": "F1", "wrong_col": 1}]).to_csv(data / "nav_snapshots.csv", sep=";", index=False)
+
+    # Without SLA configured -> not_assessed_no_sla
+    inv_no_sla = build_data_inventory(data, reference_date="2026-10-27")
+    assert inv_no_sla["datasets"]["allocation"]["freshness"]["assessment"] == "not_assessed_no_sla"
+    bond_q = inv_no_sla["datasets"]["fund_bond_holdings"]["quality"]
+    assert bond_q["anomaly_warnings"] == []
+    assert [w["code"] for w in bond_q["structural_warnings"]] == ["censored_top_n"]
+
+    # With SLA configured -> separates within_sla, stale, empty_dataset, schema_mismatch, unavailable_missing!
+    sla = {"fund_holdings": 45, "allocation": 45, "fees": 180, "nav_snapshots": 3, "full_holdings": 45}
+    inv_sla = build_data_inventory(data, reference_date="2026-10-27", freshness_sla=sla)
+    assert inv_sla["datasets"]["fund_holdings"]["freshness"]["assessment"] == "within_sla"
+    assert inv_sla["datasets"]["allocation"]["freshness"]["assessment"] == "stale"
+    assert inv_sla["datasets"]["fees"]["freshness"]["assessment"] == "empty_dataset"
+    assert inv_sla["datasets"]["nav_snapshots"]["freshness"]["assessment"] == "schema_mismatch"
+    assert inv_sla["datasets"]["full_holdings"]["freshness"]["assessment"] == "unavailable_missing"
+    assert inv_sla["datasets"]["industry"]["freshness"]["assessment"] == "not_assessed_no_sla"
+
+    # Migrate v1 source_runs.csv -> v2 preserving unknown fund_code, then append new v2 event with fund_code.
+    from vnfa.provenance import SOURCE_COLUMNS_V1
+    v1_row = {col: "" for col in SOURCE_COLUMNS_V1}
+    v1_row.update({"event_id": "legacy-evt-1", "provider": "fmarket", "endpoint": "GET /products/1",
+                   "status": "success", "http_status": "200"})
+    pd.DataFrame([v1_row], columns=SOURCE_COLUMNS_V1).to_csv(data / "source_runs.csv", sep=";", index=False)
+    assert ProvenanceStore(data, write=False).read_source_events()["fund_code"].isna().all()
+    dry = ms.migrate_source_runs(data, dry_run=True)
+    assert dry["dry_run"] is True and dry["already_v2"] is False
+    mig = ms.migrate_source_runs(data, backup_dir=tmp_path / "sr_bak", dry_run=False)
+    assert mig["already_v2"] is False and mig["rows"] == 1
+    assert ms.migrate_source_runs(data, backup_dir=tmp_path / "sr_bak", dry_run=False)["already_v2"] is True
+
+    client = FmarketClient(delay=0, run_id="run-v2")
+    resp = type("Resp", (), {
+        "status_code": 200, "content": b'{"status":200,"data":{"id":7,"code":"DCDS"}}',
+        "raw": None, "raise_for_status": lambda self=None: None,
+        "json": lambda self=None: {"status": 200, "data": {"id": 7, "code": "DCDS"}},
+    })()
+    monkeypatch.setattr(client.session, "request", lambda *_a, **_kw: resp)
+    client.product_detail(7, fund_code="DCDS")
+    assert client.last_source_event["fund_code"] == "DCDS"
+    assert ProvenanceStore(data).append_source_events(client.source_events, run_id="run-v2") == 1
+    events_df = ProvenanceStore(data, write=False).read_source_events()
+    assert len(events_df) == 2
+    assert pd.isna(events_df.iloc[0]["fund_code"])  # historical row kept unknown!
+    assert events_df.iloc[1]["fund_code"] == "DCDS"
+
+
+def test_report_and_notify_render_safely_without_leaking_tokens(monkeypatch, caplog):
+    import requests
+    from vnfa.config import load_config
+    from vnfa.notify import send_telegram
+    from vnfa.report import render_report, render_text
+
+    cfg = load_config(None)
+    changes = pd.DataFrame([
+        {"observed_date": "2026-10-27", "fund": "F1", "mgmt_co": "CO", "ticker": "FPT",
+         "action": "BUY", "basis": "volume", "w_prev": 0.05, "w_new": 0.07, "w_delta": 0.02,
+         "vol_prev": 1000, "vol_new": 1300, "vol_pct": 0.30, "vol_rel": 0.30, "vol_scale": 0.0,
+         "est_value_vnd": 3e9, "censored": False, "flag": "FUND_SCALE_MEDIAN_PROXY", "asset_class": "STOCK"},
+        {"observed_date": "2026-10-27", "fund": "F2", "mgmt_co": "CO2", "ticker": "HPG",
+         "action": "SELL", "basis": "volume", "w_prev": 0.08, "w_new": 0.05, "w_delta": -0.03,
+         "vol_prev": 2000, "vol_new": 1200, "vol_pct": -0.40, "vol_rel": -0.40, "vol_scale": 0.0,
+         "est_value_vnd": -2e9, "censored": False, "flag": "FUND_SCALE_MEDIAN_PROXY", "asset_class": "STOCK"},
+        {"observed_date": "2026-10-27", "fund": "F3", "mgmt_co": "CO3", "ticker": "MBB",
+         "action": "WEIGHT_CHANGE?", "basis": "weight", "w_prev": 0.04, "w_new": 0.06, "w_delta": 0.02,
+         "vol_prev": np.nan, "vol_new": np.nan, "vol_pct": np.nan, "vol_rel": np.nan, "vol_scale": np.nan,
+         "est_value_vnd": np.nan, "censored": False, "flag": "WEIGHT_ONLY_UNCONFIRMED", "asset_class": "STOCK"},
+    ])
+    info = {
+        "n_ok": 3, "n_total": 3, "n_failed": 0, "n_partial": 0, "n_changed": 3, "n_baseline": 0,
+        "n_empty_holdings": 1, "n_nav_invalid": 1, "n_nav_history_failed": 0,
+        "n_quality_reports": 3, "n_quality_errors": 0, "n_quality_warnings": 4, "n_quality_rejected": 0,
+        "n_provenance_observations": 10, "n_source_events": 4, "empty_tables": {"fees": 1}, "failed": ["F9"],
+    }
+    md = render_report("2026-10-27", changes, info, cfg)
+    assert "Tăng vị thế ròng ước tính" in md and "Giảm vị thế ròng ước tính" in md
+    assert "Thay đổi chưa xác nhận" in md and "Watchlist" in md
+    txt = render_text("2026-10-27", changes, info, cfg)
+    assert "FPT +3.0tỷ" in txt and "HPG -2.0tỷ" in txt
+    assert "Không có thay đổi" in render_text("2026-10-27", changes.iloc[0:0], info, cfg)
+
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
+    assert send_telegram("hi") is False
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "SUPER_SECRET_BOT_TOKEN_123")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "99999")
+    monkeypatch.setattr(requests, "post", lambda *_a, **_kw: (_ for _ in ()).throw(requests.ConnectionError("boom")))
+    assert send_telegram("hi") is False
+    assert "SUPER_SECRET_BOT_TOKEN_123" not in caplog.text
