@@ -1,0 +1,12 @@
+{
+  "budget_status": "unknown",
+  "collector_exit_code": null,
+  "conclusion": "success",
+  "recorded_at": "2026-10-28T06:18:47Z",
+  "schema_version": "1.0.0",
+  "status_scope": "final_workflow",
+  "status_source": "github_actions_api",
+  "status_updated_at": "2026-10-27T06:37:58Z",
+  "trigger": "workflow_dispatch",
+  "workflow": "daily"
+}

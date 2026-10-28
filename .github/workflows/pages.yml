@@ -76,6 +76,19 @@ jobs:
           key: yuanta-static-readonly-${{ github.run_id }}
           restore-keys: |
             yuanta-lake-v1-
+      # workflow_run.completed is emitted after the daily workflow has finished.
+      # This record is only staged for Pages; no Git commit or new live source request is made.
+      - name: Stage completed daily workflow outcome from GitHub event
+        if: github.event_name == 'workflow_run' && github.event.workflow_run.status == 'completed'
+        env:
+          DAILY_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          DAILY_EVENT: ${{ github.event.workflow_run.event }}
+          DAILY_UPDATED_AT: ${{ github.event.workflow_run.updated_at }}
+        run: |
+          python scripts/write_workflow_status.py --out data/workflow_status.json \
+            --workflow daily --conclusion "$DAILY_CONCLUSION" --trigger "$DAILY_EVENT" \
+            --status-scope final_workflow --status-source github_event \
+            --status-updated-at "$DAILY_UPDATED_AT"
       - name: Export sanitized static data
         run: python scripts/export_dashboard.py
       - name: Upload Pages artifact

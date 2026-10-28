@@ -769,3 +769,29 @@ def test_report_and_notify_render_safely_without_leaking_tokens(monkeypatch, cap
     monkeypatch.setattr(requests, "post", lambda *_a, **_kw: (_ for _ in ()).throw(requests.ConnectionError("boom")))
     assert send_telegram("hi") is False
     assert "SUPER_SECRET_BOT_TOKEN_123" not in caplog.text
+
+
+def test_inventory_markdown_vietnamese_and_default_english(tmp_path):
+    from vnfa.inventory import build_data_inventory, render_inventory_markdown
+    inv = build_data_inventory(tmp_path / 'missing', reference_date='2026-10-27')
+    vi = render_inventory_markdown(inv, lang='vi')
+    assert 'Báo cáo kiểm kê' in vi
+    assert 'Thiếu không phải là 0' in vi
+    assert 'published_at' in vi and 'observed_at' in vi
+    assert '# Data inventory and coverage report' in render_inventory_markdown(inv)
+
+
+def test_reaction_english_cli_offline(tmp_path):
+    import subprocess
+    import sys
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    result = subprocess.run([sys.executable, str(root / 'scripts/analyze_reaction.py'),
+                             '--data-dir', str(tmp_path), '--lang', 'en',
+                             '--out', str(tmp_path / 'report.md')],
+                            capture_output=True, text=True, check=True)
+    assert 'Fund reactions since' in result.stdout
+    assert 'not confirmed' not in result.stdout or 'not confirmed trades' in result.stdout
+    assert 'publication time is unknown' in result.stdout
+    assert 'not investment advice' in result.stdout
+    assert (tmp_path / 'report.md').read_text(encoding='utf-8') == result.stdout.rstrip() + '\n'

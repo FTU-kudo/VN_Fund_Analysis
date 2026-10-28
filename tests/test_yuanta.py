@@ -452,6 +452,7 @@ def test_scanner_cli_end_to_end_parquet_gzip_incremental_and_dashboard_coexisten
     assert "2010_Q1" in acb_bundle["page4_financials"]["cstc"]["periods"]
     assert "2009_Q4" not in acb_bundle["page4_financials"]["cstc"]["periods"]
     assert len(acb_bundle["page4_financials"]["charts"]) >= 3
+    assert all(chart.get("chart_id") and all(series.get("series_key") for series in chart["series"]) for chart in acb_bundle["page4_financials"]["charts"])
     assert acb_bundle["page5_events"]["record_count"] == 2
 
     # Source runs CSV has zero query params or raw bodies

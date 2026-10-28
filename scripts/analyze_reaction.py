@@ -173,6 +173,90 @@ def _render_nav_section(
         L += [md_table(tb, {"Hiệu suất": pct, "MDD": pct}), ""]
 
 
+def render_reaction_en(funds: pd.DataFrame, nav: pd.DataFrame, snap: pd.DataFrame,
+                       alloc: pd.DataFrame, changes: pd.DataFrame, peak: str,
+                       fresh_days: int = 14, max_gap_days: int = 35) -> str:
+    """English presentation of the same separate NAV, allocation and inferred-event analyses."""
+    lines = [f"# Fund reactions since {peak}", ""]
+    labels = {"STOCK": "Equity funds", "BALANCED": "Balanced funds", "BOND": "Bond / MMF funds"}
+    for heading, note, series in (
+        ("1A. Historical NAV (`nav.csv`)", "`date` is source navDate; original publication time is unknown.", nav),
+        ("1B. Observed NAV snapshots (`nav_snapshots.csv`)", "`date` is the observation date, not a verified NAV effective date.", snap),
+    ):
+        if series.empty:
+            continue
+        perf, last, skipped = nav_since(series, funds, peak, fresh_days, max_gap_days=max_gap_days)
+        first = pd.to_datetime(series.date, errors="coerce").min().date().isoformat()
+        total = series.fund.nunique()
+        lines += [f"## {heading} since {peak}", "", note, ""]
+        if perf.empty:
+            lines += [f"Insufficient continuous NAV series around {peak}; available range `{first}` → `{last}` ({total} funds). {skipped} funds excluded for gaps over {max_gap_days} days. The two NAV series are never stitched together.", ""]
+            continue
+        lines += [f"{len(perf)}/{total} funds qualify (NAV within {fresh_days} days of `{last}`, baseline near the reference date, no gap over {max_gap_days} days). {skipped} excluded for excessive gaps. Fund baseline dates range from `{perf['from'].min()}` to `{perf['from'].max()}`.", ""]
+        grouped = perf.groupby("asset_code").agg(n=("fund", "count"), median=("ret", "median"), p25=("ret", lambda x: x.quantile(.25)), p75=("ret", lambda x: x.quantile(.75)), mdd_median=("mdd", "median")).reset_index()
+        grouped["asset_code"] = grouped.asset_code.map(labels).fillna(grouped.asset_code)
+        grouped.columns = ["Fund category", "Funds", "Median", "P25", "P75", "Median MDD"]
+        lines += [md_table(grouped, {c: pct for c in ["Median", "P25", "P75", "Median MDD"]}), ""]
+        equity = perf[perf.asset_code == "STOCK"].sort_values("ret")
+        if len(equity) >= 6:
+            table = pd.concat([equity.head(3), equity.tail(3)])[["fund", "mgmt_co", "ret", "mdd"]]
+            table.columns = ["Equity funds (bottom 3, top 3)", "Manager", "NAV change", "MDD"]
+            lines += [md_table(table, {"NAV change": pct, "MDD": pct}), ""]
+    if not alloc.empty:
+        al = alloc.assign(pct=pd.to_numeric(alloc.pct, errors="coerce"), report_date=pd.to_datetime(alloc.report_date, errors="coerce"))
+        al = al[al.report_date.notna()].drop_duplicates(["fund", "report_date", "asset_code"], keep="last")
+        piv = al.pivot_table(index=["fund", "report_date"], columns="asset_code", values="pct", aggfunc="last").reset_index()
+        if {"code", "asset_code"}.issubset(funds.columns):
+            piv = piv.merge(funds[["code", "asset_code"]].rename(columns={"asset_code": "type"}), left_on="fund", right_on="code", how="left")
+        else:
+            piv["code"], piv["type"] = np.nan, np.nan
+        rows = []
+        for fund, group in piv.groupby("fund"):
+            group = group.sort_values("report_date")
+            baseline = group[group.report_date <= pd.Timestamp(peak) + pd.Timedelta(days=31)]
+            if baseline.empty or len(group) < 2:
+                continue
+            start, end = baseline.iloc[-1], group.iloc[-1]
+            if end.report_date <= start.report_date:
+                continue
+            rows.append(dict(fund=fund, type=group.type.iloc[0], d0=start.report_date.date().isoformat(), d1=end.report_date.date().isoformat(), stock0=start.get("STOCK", np.nan), stock1=end.get("STOCK", np.nan), cash0=start.get("CASH", np.nan), cash1=end.get("CASH", np.nan)))
+        frame = pd.DataFrame(rows)
+        if not frame.empty:
+            frame["d_stock"], frame["d_cash"] = frame.stock1 - frame.stock0, frame.cash1 - frame.cash0
+            lines += ["## 2. Asset allocation: period near reference → latest", "", "Median changes in percentage points, and counts of funds increasing/decreasing cash by at least one percentage point.", ""]
+            grouped = frame[frame.type.isin(["STOCK", "BALANCED"])].groupby("type").agg(n_stock=("d_stock", "count"), n_cash=("d_cash", "count"), stock0=("stock0", "median"), stock1=("stock1", "median"), d_stock=("d_stock", "median"), cash0=("cash0", "median"), cash1=("cash1", "median"), d_cash=("d_cash", "median"), up=("d_cash", lambda x: (x >= .01).sum()), down=("d_cash", lambda x: (x <= -.01).sum())).reset_index()
+            grouped["type"] = grouped.type.map(labels)
+            grouped.columns = ["Fund category", "N equity Δ", "N cash Δ", "Equity start", "Equity end", "Equity Δ", "Cash start", "Cash end", "Cash Δ", "Cash up", "Cash down"]
+            lines += [md_table(grouped, {c: pct0 for c in ["Equity start", "Equity end", "Cash start", "Cash end"]} | {"Equity Δ": pct, "Cash Δ": pct}, na_label=""), ""]
+            top = frame[frame.type == "STOCK"].sort_values("d_cash")
+            if len(top) >= 6:
+                table = pd.concat([top.head(3), top.tail(3)])[["fund", "d0", "d1", "cash0", "cash1", "d_cash"]]
+                table.columns = ["Equity funds (largest cash decreases and increases)", "From", "To", "Cash start", "Cash end", "Cash Δ"]
+                lines += [md_table(table, {"Cash start": pct0, "Cash end": pct0, "Cash Δ": pct}, na_label=""), ""]
+    if not changes.empty:
+        asset_cls = changes["asset_class"].fillna("STOCK") if "asset_class" in changes.columns else pd.Series("STOCK", index=changes.index)
+        c = changes[(asset_cls == "STOCK") & changes.action.isin(["BUY", "SELL"]) & (changes.basis == "volume")].copy()
+        if {"code", "asset_code"}.issubset(funds.columns):
+            c = c.merge(funds[["code", "asset_code"]], left_on="fund", right_on="code", how="left")
+            c = c[c.asset_code == "STOCK"]
+        c["val"] = pd.to_numeric(c.est_value_vnd, errors="coerce") / 1e9
+        c["month"] = c.observed_date.astype(str).str[:7]
+        if not c.empty:
+            lines += ["## 3. Estimated equity fund position changes (volume-based)", "", "Value uses volume after the fund-scale proxy multiplied by the implied reporting-period price. These are inferred changes, not confirmed trades. Missing values remain `NA`, not zero; corporate actions are unverified heuristics.", ""]
+            month = c.groupby("month").agg(n_buy=("action", lambda x: int((x == "BUY").sum())), n_sell=("action", lambda x: int((x == "SELL").sum())), buy=("val", lambda x: x[x > 0].sum(min_count=1)), sell=("val", lambda x: x[x < 0].sum(min_count=1)), net=("val", lambda x: x.sum(min_count=1))).reset_index()
+            month["breadth"] = month.n_buy / (month.n_buy + month.n_sell)
+            month.columns = ["Month", "Position increases", "Position decreases", "Increase (bn VND)", "Decrease (bn VND)", "Net (bn VND)", "Increase proportion"]
+            lines += [md_table(month, {"Increase (bn VND)": lambda x: f"{x:,.1f}", "Decrease (bn VND)": lambda x: f"{x:,.1f}", "Net (bn VND)": lambda x: f"{x:+,.1f}", "Increase proportion": pct0}), ""]
+            ticker = c.groupby("ticker").agg(n_funds=("fund", "nunique"), net=("val", lambda x: x.sum(min_count=1))).reset_index()
+            known = ticker[ticker.net.notna()].sort_values("net")
+            if not known.empty:
+                table = pd.concat([known.tail(8).iloc[::-1].assign(k="Position increase"), known.head(8).assign(k="Position decrease")]).drop_duplicates(["k", "ticker"])[["k", "ticker", "n_funds", "net"]]
+                table.columns = ["Group", "Ticker", "Funds", "Net (bn VND)"]
+                lines += ["Largest estimated net position changes in the period:", "", md_table(table, {"Net (bn VND)": lambda x: f"{x:+,.1f}"}), ""]
+    lines += ["## Qualifications", "", "- Based on Fmarket Top-N holdings and NAV; stale or discontinuous NAV series are excluded from section 1.", "- Top-N is censored: entering or leaving it does not prove a new position or complete exit.", "- Historical source NAV dates and observed NAV snapshot dates remain separate; publication time is unknown.", "- Missing asset allocation categories are not zero; compare only weights present in both periods.", "- NAV change is not total return or benchmark-adjusted alpha. This descriptive analysis does not establish causality and is not investment advice."]
+    return "\n".join(lines) + "\n"
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-dir", default=str(ROOT / "data"))
@@ -180,9 +264,17 @@ def main() -> None:
     ap.add_argument("--fresh-days", type=int, default=14, help="chỉ dùng quỹ có NAV mới trong N ngày so với ngày NAV mới nhất")
     ap.add_argument("--max-gap-days", type=int, default=35, help="loại chuỗi có khoảng trống nội bộ vượt quá N ngày")
     ap.add_argument("--out", default=None)
+    ap.add_argument("--lang", choices=("vi", "en"), default="vi")
     a = ap.parse_args()
     data = Path(a.data_dir)
     funds, nav, snap, alloc, ch, ind = load_with_snapshots(data)
+    if a.lang == "en":
+        md = render_reaction_en(funds, nav, snap, alloc, ch, a.peak, a.fresh_days, a.max_gap_days)
+        print(md)
+        out = Path(a.out) if a.out else ROOT / "reports" / f"reaction_{a.peak}.md"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(md, encoding="utf-8")
+        return
     L = [f"# Phản ứng của các quỹ kể từ {a.peak}", ""]
 
     # 1A) Chuỗi NAV lịch sử chính thức (nav.csv — navDate)

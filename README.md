@@ -1,3 +1,5 @@
+🇻🇳 **Tiếng Việt** | 🇬🇧 [English](README.en.md)
+
 # VN_Fund_Analysis
 
 Theo dõi các quỹ mở có trên Fmarket (cổ phiếu, cân bằng, trái phiếu/MMF) bằng GitHub Actions; số quỹ thực tế được xác định khi chạy từ API. Trong checkout hiện tại (`2026-10-27`), `data/funds.csv` ghi nhận **69 quỹ** (`STOCK`: 34, `BALANCED`: 11, `BOND`: 24), kèm 46 tệp snapshot cổ phiếu, 33 tệp snapshot trái phiếu, lịch sử NAV cho 59/69 quỹ (`data/nav.csv`, 47.121 điểm đến `2025-10-31`) và snapshot NAV ngày quan sát cho 69/69 quỹ (`data/nav_snapshots.csv`).
@@ -8,7 +10,7 @@ Audit kiến trúc ban đầu: [`docs/AUDIT_2026-10-27.md`](docs/AUDIT_2026-10-2
 
 ## Static research dashboard (GitHub Pages)
 
-Bảng điều khiển nghiên cứu tĩnh triển khai từ `dashboard/` và hỗ trợ project-site path `/VN_Fund_Analysis/`. UI tiếng Việt chạy bằng HTML/CSS/JavaScript thuần, không có dependency build phía browser và không gọi Fmarket/API có xác thực. Các view gồm tổng quan, quỹ, holdings/sự kiện danh mục, nghiên cứu mã, so sánh NAV cùng nhóm, data quality, pipeline health và methodology; bộ lọc, sắp xếp, phân trang, liên kết chi tiết và query URL có thể chia sẻ. Watchlist được lưu cục bộ trong browser.
+Bảng điều khiển nghiên cứu tĩnh triển khai từ `dashboard/` và hỗ trợ project-site path `/VN_Fund_Analysis/`. UI chạy bằng HTML/CSS/JavaScript thuần, không có dependency build phía browser và không gọi Fmarket/API có xác thực. Các view gồm tổng quan, quỹ, holdings/sự kiện danh mục, nghiên cứu mã, so sánh NAV cùng nhóm, data quality, pipeline health và methodology; bộ lọc, sắp xếp, phân trang, liên kết chi tiết và query URL có thể chia sẻ. Watchlist được lưu cục bộ trong browser. Có thể chọn `VI` / `EN` hoặc dùng `?lang=vi` / `?lang=en`; dữ liệu do nguồn cung cấp có thể vẫn hiển thị nguyên văn tiếng Việt nếu không có bản dịch được xác minh.
 
 Exporter chỉ đọc `data/` hiện có và tạo `dashboard/data/` JSON có manifest schema-versioned:
 
@@ -144,7 +146,7 @@ VN_Fund_Analysis/
    Chạy backfill **trước** lần chạy thật đầu tiên ở bước 4 để mốc đầu của bạn nối tiếp lịch sử. Ngày commit mirror chỉ là xấp xỉ, không phải publication time. Nếu chỉ muốn thêm lịch sử nghiên cứu và đảm bảo không sửa bất kỳ CSV legacy nào (kể cả NAV), chạy `python scripts/backfill_hat_ccq.py --provenance-only`; lệnh chỉ append provenance/quality sidecars, và các ngày mirror vẫn bị loại khỏi PIT mặc định.
 6. (Tùy chọn) Telegram: thêm secrets `TELEGRAM_BOT_TOKEN` và `TELEGRAM_CHAT_ID` ở **Settings → Secrets and variables → Actions**.
 
-Chạy trên máy: `python scripts/run_daily.py --dry-run --limit 3`, `pytest -q` để chạy test.
+Chạy trên máy: `python scripts/run_daily.py --dry-run --limit 3 --lang en`, `pytest -q` để chạy test. Báo cáo hỗ trợ `--lang vi|en|both` (mặc định theo `[report].lang`); `both` ghi thêm `latest.en.md` và báo cáo ngày `.en.md`. Phân tích phản ứng hỗ trợ `python scripts/analyze_reaction.py --lang en`.
 
 ## Đọc kết quả
 
@@ -159,7 +161,7 @@ Liên kết với `smart_money_quant.py`: `python scripts/export_holdings_long.p
 Tạo inventory thực tế, không ước lượng số quỹ/rows còn thiếu:
 
 ```bash
-python scripts/data_inventory.py --reference-date 2026-10-27
+python scripts/data_inventory.py --reference-date 2026-10-27 --lang vi
 ```
 
 Lệnh ghi `reports/data_inventory.json` và `.md`; dùng `--stdout-only` để chỉ xem. Báo cáo liệt kê files/schema/row counts, fund/date coverage, quality findings, source events đã lưu và các bước tiếp theo. `missing` không có nghĩa là zero hoặc nguồn rỗng. Snapshot được tính theo ngày tham chiếu; tuổi dữ liệu được hiển thị nhưng không tự gán stale nếu chưa có SLA.
@@ -232,3 +234,5 @@ Báo cáo `reports/reaction_<mốc>.md` gồm: NAV từ mốc theo loại quỹ,
 - Dữ liệu: API công khai của Fmarket (không có tài liệu chính thức). Dùng cho nghiên cứu cá nhân, giữ tần suất thấp, và tự kiểm tra điều khoản sử dụng trước khi chia sẻ hoặc tái phân phối dữ liệu.
 - Script `scripts/backfill_hat_ccq.py` hỗ trợ đọc lịch sử git của [huyhn-ba-po/hat-ccq](https://github.com/huyhn-ba-po/hat-ccq) vào thư mục staging (`--data-dir` / `--dry-run` / `--max-commits`). Lưu ý pháp lý: README của `hat-ccq` dẫn liên kết `[MIT](LICENSE)` nhưng repository gốc không có tệp `LICENSE` (`HTTP 404` trên `/license`), đồng thời quyền tái phân phối dữ liệu Fmarket chưa được xác minh độc lập; theo quyết định quản trị dự án hiện tại, dữ liệu mirror **không** được publish vào `data/` của nhánh chính cho tới khi xác nhận điều khoản. Không có mã nguồn nào của repo đó được sao chép vào dự án này.
 - Đây là công cụ nghiên cứu, không phải khuyến nghị đầu tư.
+
+Trạng thái collector/ngân sách ghi trong job không chứng minh kết quả workflow cuối cùng. Dashboard chỉ hiển thị kết quả hoàn tất lịch sử khi nhận event hoàn tất từ GitHub hoặc bản ghi API đã xác minh; thời điểm GitHub cập nhật và thời điểm quan sát được giữ riêng, không chứng minh dữ liệu hiện còn mới.

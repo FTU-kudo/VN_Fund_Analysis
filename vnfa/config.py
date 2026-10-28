@@ -12,7 +12,7 @@ DEFAULTS = {
     "thresholds": {"min_volume_change_pct": 5.0, "min_weight_delta_pp": 0.5},
     "corporate_action": {"min_funds": 3, "spread_pct": 1.0, "min_change_pct": 3.0, "lookback_days": 7},
     "watchlist": {"tickers": ["FPT", "HPG", "MBB"]},
-    "report": {"top_n": 10},
+    "report": {"top_n": 10, "lang": "vi"},
     "http": {"delay_seconds": 1.0, "timeout_seconds": 30},
     "freshness": {"enabled": False},
 }

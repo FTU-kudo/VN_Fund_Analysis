@@ -455,7 +455,11 @@ def build_data_inventory(
     }
 
 
-def render_inventory_markdown(inventory: dict[str, Any]) -> str:
+def render_inventory_markdown(inventory: dict[str, Any], lang: str = "en") -> str:
+    if lang == "vi":
+        return _render_inventory_vietnamese(inventory)
+    if lang != "en":
+        raise ValueError("lang must be vi or en")
     summary = inventory["summary"]
     lines = [
         "# Data inventory and coverage report",
@@ -515,3 +519,74 @@ def render_inventory_markdown(inventory: dict[str, Any]) -> str:
         lines.append(f"- {limitation}")
     lines.append("")
     return "\n".join(lines)
+
+
+def _render_inventory_vietnamese(inventory: dict[str, Any]) -> str:
+    """Render the inventory without changing its machine-readable codes or source data."""
+    summary = inventory["summary"]
+    lines = [
+        "# Báo cáo kiểm kê và độ phủ dữ liệu", "",
+        f"- Tạo lúc: `{inventory['generated_at']}` (Asia/Ho_Chi_Minh)",
+        f"- Ngày tham chiếu: `{inventory['reference_date']}`",
+        f"- Thư mục dữ liệu tồn tại: **{inventory['data_directory_exists']}** (`{inventory['data_directory']}`)",
+        f"- Số tệp CSV: **{inventory['repository_data_files']}**",
+        f"- Dataset dự kiến: **{summary['datasets_expected']}**; có dữ liệu **{summary['datasets_available']}**; thiếu **{summary['datasets_missing']}**; lỗi schema/đọc **{summary['datasets_with_schema_or_read_issues']}**",
+        f"- Số dòng CSV quan sát được trong các dataset đã biết: **{summary['csv_rows_observed']}**",
+        f"- Số quỹ quan sát được trên các bảng: **{summary['funds_observed_across_tables']}**", "",
+        "> Các số liệu chỉ dựa trên tệp hiện có. Thiếu không phải là 0, và báo cáo không xác nhận kết nối nguồn live.", "",
+        "## Kiểm kê dataset", "",
+        "| Dataset | Trạng thái | Độ mới | Tệp | Dòng | Quỹ | Chất lượng | Độ phủ / khoảng ngày / tuổi |",
+        "|---|---:|---|---:|---:|---:|---|---|",
+    ]
+    for name, item in inventory["datasets"].items():
+        freshness = item.get("freshness", {})
+        fresh_label = freshness.get("assessment", "not_assessed_no_sla")
+        if freshness.get("sla_days") is not None:
+            fresh_label += f" (≤{freshness['sla_days']} ngày)"
+        date_text = ", ".join(
+            f"{key}: {data['coverage']:.0%} ({data['first'] or '—'} → {data['last'] or '—'}; tuổi {data['age_days_reference_date'] if data['age_days_reference_date'] is not None else '—'} ngày)"
+            for key, data in item.get("date_coverage", {}).items()) or "không có"
+        lines.append(f"| `{name}` | {item['status']} | {fresh_label} | {item['file_count']} | {item['row_count']} | {item['fund_count']} | {item['quality']['status']} | {date_text} |")
+    lines.extend(["", "## Kết quả kiểm định chất lượng", ""])
+    findings = False
+    for name, item in inventory["datasets"].items():
+        quality = item["quality"]
+        if quality["errors"] or quality["warnings"]:
+            findings = True
+            parts = [f"{f['code']} ({f['count']})" for f in quality["errors"] + quality["warnings"]]
+            lines.append(f"- `{name}` — {quality['status']}: {', '.join(parts)}")
+    if not findings:
+        lines.append("- Không có kết quả kiểm định (dataset thiếu hoặc không có validator phù hợp).")
+    lines.extend(["", "## Kết nối nguồn và provenance", "",
+                  f"- Số lần thử nguồn đã lưu: **{inventory['source_coverage']['event_count']}** ({inventory['source_coverage']['status']}).",
+                  f"- Số lượng theo kết quả: `{inventory['source_coverage'].get('outcomes', {})}`",
+                  "- Chẩn đoán nguồn không xác nhận điều khoản hoặc quyền tái sử dụng dữ liệu."])
+    obs = inventory["datasets"]["research_observations"]
+    if "provenance_coverage" in obs:
+        lines.append(f"- Độ phủ thời điểm quan sát: `{obs['provenance_coverage']}`")
+        lines.append(f"- Trạng thái xác minh: `{obs.get('verification_status_counts', {})}`")
+        lines.append(f"- Căn cứ ngày khả dụng: `{obs.get('availability_basis', {})}`")
+    quality = inventory["datasets"]["quality_reports"]
+    if "severity_counts" in quality:
+        lines.append(f"- Mức độ nghiêm trọng của finding đã lưu: `{quality['severity_counts']}`")
+    actions = {
+        "Create/restore the data archive and run a small approved collection; inventory found no existing CSV observations.": "Tạo hoặc khôi phục archive và chạy thu thập nhỏ đã được phê duyệt; không có quan sát CSV hiện hữu.",
+        "Run the classified source diagnostic from an environment allowed to reach Fmarket; check terms/rate limits separately.": "Chạy chẩn đoán nguồn từ môi trường được phép truy cập Fmarket; kiểm tra điều khoản và giới hạn tốc độ riêng.",
+        "Start collecting exact observed_at/ingested_at and leave unknown published_at blank; exclude timestamp-unknown records from PIT analyses.": "Thu thập observed_at/ingested_at chính xác, để trống published_at chưa biết; loại bản ghi thiếu timestamp khỏi phân tích PIT.",
+        "Resolve CSV parsing/schema mismatches explicitly before using affected datasets.": "Xử lý tường minh lỗi đọc CSV và sai schema trước khi sử dụng dataset bị ảnh hưởng.",
+        "Populate only datasets needed for research; preserve missingness and report per-source coverage rather than filling gaps.": "Chỉ bổ sung dataset cần nghiên cứu; giữ dữ liệu thiếu và báo độ phủ từng nguồn thay vì lấp khoảng trống.",
+        "Accumulate verified full holdings, fund AUM/flows, official publication times, NAV history, and benchmark/fee data before any ranking or backtest.": "Thu thập danh mục đầy đủ đã xác minh, AUM/dòng vốn, thời điểm công bố chính thức, lịch sử NAV và benchmark/phí trước khi xếp hạng hay backtest.",
+        "Do not interpret inferred holdings changes as trades or assert investment alpha; validate only after a point-in-time dataset is sufficiently covered.": "Không diễn giải thay đổi danh mục suy luận là giao dịch hoặc khẳng định alpha; chỉ kiểm định khi dữ liệu PIT đủ độ phủ.",
+    }
+    limitations = {
+        "Inventory describes files present at generation time; it does not represent current live Fmarket coverage.": "Inventory mô tả các tệp tại thời điểm tạo, không đại diện độ phủ Fmarket live hiện tại.",
+        "Missing datasets and unknown values are not interpreted as zero or as proof that a source has no records.": "Dataset thiếu và giá trị chưa biết không được hiểu là 0 hay bằng chứng nguồn không có bản ghi.",
+        "Top-N holdings are censored. Date-only and approximate backfill observations have lower or no PIT eligibility.": "Danh mục Top-N bị kiểm duyệt. Quan sát chỉ có ngày hoặc backfill xấp xỉ có mức phù hợp PIT thấp hoặc không phù hợp.",
+        "Source terms, published-time semantics, and live schema require independent verification.": "Điều khoản nguồn, ý nghĩa thời điểm công bố và schema live cần xác minh độc lập.",
+    }
+    lines.extend(["", "## Các bước ưu tiên", ""])
+    for item in inventory["prioritized_next_steps"]:
+        lines.append(f"- **{item['priority']}** — {actions.get(item['action'], item['action'])}")
+    lines.extend(["", "## Giới hạn", ""])
+    lines.extend(f"- {limitations.get(item, item)}" for item in inventory["limitations"])
+    return "\n".join(lines) + "\n"

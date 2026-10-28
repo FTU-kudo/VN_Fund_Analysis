@@ -349,10 +349,14 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=None, help="chỉ chạy N quỹ đầu (gỡ lỗi)")
     ap.add_argument("--date", default=None, help="YYYY-MM-DD (mặc định: hôm nay theo giờ Việt Nam)")
     ap.add_argument("--dry-run", action="store_true", help="không ghi file, không gửi thông báo")
+    ap.add_argument("--lang", choices=("vi", "en", "both"), default=None, help="report language (overrides config)")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     cfg = load_config(a.config)
+    lang = a.lang or cfg["report"].get("lang", "vi")
+    if lang not in {"vi", "en", "both"}:
+        ap.error("report.lang must be vi, en, or both")
     date = a.date or datetime.now(ICT).date().isoformat()
     store = Store(a.data_dir, write=not a.dry_run)
     client = FmarketClient(delay=cfg["http"]["delay_seconds"], timeout=cfg["http"]["timeout_seconds"])
@@ -376,19 +380,30 @@ def main() -> int:
     if info is None:
         return 1
 
-    md = render_report(date, changes, info, cfg)
+    primary_lang = "vi" if lang == "both" else lang
+    md = render_report(date, changes, info, cfg, lang=primary_lang)
+    md_en = render_report(date, changes, info, cfg, lang="en") if lang == "both" else None
     if a.dry_run:
         print(md)
+        if md_en is not None:
+            print(md_en)
     else:
         rd = Path(a.reports_dir)
         rd.mkdir(parents=True, exist_ok=True)
         (rd / "latest.md").write_text(md, encoding="utf-8")
+        if md_en is not None:
+            (rd / "latest.en.md").write_text(md_en, encoding="utf-8")
         if not changes.empty or info["n_baseline"]:
             (rd / f"{date}.md").write_text(md, encoding="utf-8")
+            if md_en is not None:
+                (rd / f"{date}.en.md").write_text(md_en, encoding="utf-8")
         Path(a.data_dir, "last_run.json").write_text(json.dumps({"date": date, **info}, ensure_ascii=False, indent=2),
                                                      encoding="utf-8")
         if not changes.empty:
-            send_telegram(render_text(date, changes, info, cfg))
+            send_telegram(render_text(date, changes, info, cfg, lang=primary_lang))
+            if lang == "both":
+                # Send separately so Telegram's per-message limit cannot truncate the English copy.
+                send_telegram(render_text(date, changes, info, cfg, lang="en"))
 
     # Ingestion cốt lõi vẫn được giữ; workflow đỏ nếu provenance/quality ledger không ghi được.
     if source_event_write_failed or info.get("n_provenance_write_failed", 0):

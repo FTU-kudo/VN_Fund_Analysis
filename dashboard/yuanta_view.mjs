@@ -1,9 +1,24 @@
+import {
+  DEFAULT_LANG,
+  formatInteger,
+  formatDate,
+  formatNumber,
+  formatSignedPercentPoints,
+  normalizeLang,
+  translateChartSeriesLabel,
+  translateChartTitle,
+  translateCorrelationMetric,
+  translateFinancialComponent,
+  translateFinancialField,
+  translateFinancialUnit,
+  translateMacroGroup,
+  translateSubGroup,
+  withLangHref,
+} from './i18n.mjs';
+
 const TICKER_RE = /^[A-Z0-9]{2,5}$/;
 const BUNDLE_CACHE = new Map();
 let UNIVERSE_CACHE = null;
-
-const VI_NUM = new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 2 });
-const VI_INT = new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 });
 
 function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -11,20 +26,17 @@ function esc(value) {
   }[ch]));
 }
 
-function fmtNum(val, digits = 2) {
-  if (val === null || val === undefined || val === '' || !Number.isFinite(Number(val))) return '—';
-  return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: digits }).format(Number(val));
+function fmtNum(val, digits = 2, lang = DEFAULT_LANG) {
+  return formatNumber(val, digits, lang);
 }
 
-function fmtInt(val) {
+function fmtInt(val, lang = DEFAULT_LANG) {
   if (val === null || val === undefined || val === '' || !Number.isFinite(Number(val))) return '—';
-  return VI_INT.format(Number(val));
+  return formatInteger(val, lang, '—');
 }
 
-function fmtSignedPct(val, digits = 2) {
-  if (val === null || val === undefined || val === '' || !Number.isFinite(Number(val))) return '—';
-  const n = Number(val);
-  return `${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: digits, signDisplay: 'exceptZero' }).format(n).replace(/^-/, '−')}%`;
+function fmtSignedPct(val, digits = 2, lang = DEFAULT_LANG) {
+  return formatSignedPercentPoints(val, digits, lang);
 }
 
 export function clearYuantaCache() {
@@ -47,7 +59,6 @@ async function decodeGzipOrJsonResponse(response) {
   }
   const buf = await response.arrayBuffer();
   const bytes = new Uint8Array(buf);
-  // Check gzip magic header 0x1f 0x8b.
   if (bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
     if (typeof DecompressionStream === 'function') {
       const ds = new DecompressionStream('gzip');
@@ -67,7 +78,7 @@ export async function loadYuantaUniverse(fetcher = globalThis.fetch, moduleUrl =
   try {
     const resp = await fetcher(resolveYuantaUrl('universe.json', moduleUrl), { cache: 'no-store' });
     if (!resp || !resp.ok) {
-      UNIVERSE_CACHE = { status: 'not_synced', count: 0, stocks: [] };
+      UNIVERSE_CACHE = { status: resp?.status === 404 ? 'not_synced' : 'unavailable', count: null, stocks: [] };
       return UNIVERSE_CACHE;
     }
     const payload = await resp.json();
@@ -77,8 +88,8 @@ export async function loadYuantaUniverse(fetcher = globalThis.fetch, moduleUrl =
     }
     UNIVERSE_CACHE = { status: 'available', ...payload };
     return UNIVERSE_CACHE;
-  } catch {
-    UNIVERSE_CACHE = { status: 'not_synced', count: 0, stocks: [] };
+  } catch (error) {
+    UNIVERSE_CACHE = { status: error instanceof SyntaxError ? 'malformed' : 'unavailable', count: null, stocks: [] };
     return UNIVERSE_CACHE;
   }
 }
@@ -89,30 +100,37 @@ export async function loadYuantaStockBundle(symbol, fetcher = globalThis.fetch, 
   if (BUNDLE_CACHE.has(sym)) return BUNDLE_CACHE.get(sym);
   if (typeof fetcher !== 'function') return { status: 'unavailable', symbol: sym, bundle: null };
 
+  let failure = null;
   for (const candidate of [`stocks/${sym}.json.gz`, `stocks/${sym}.json`]) {
     try {
       const resp = await fetcher(resolveYuantaUrl(candidate, moduleUrl), { cache: 'no-store' });
-      if (!resp || !resp.ok) continue;
+      if (!resp || !resp.ok) { if (resp?.status !== 404) failure = 'unavailable'; continue; }
       const parsed = candidate.endsWith('.gz') ? await decodeGzipOrJsonResponse(resp) : await resp.json();
       if (parsed && typeof parsed === 'object' && parsed.symbol === sym) {
         const entry = { status: 'available', symbol: sym, bundle: parsed };
         BUNDLE_CACHE.set(sym, entry);
         return entry;
       }
-    } catch {
+      failure = 'malformed';
+    } catch (error) {
+      failure = error instanceof SyntaxError ? 'malformed' : 'unavailable';
       /* try plain json fallback */
     }
   }
-  const missing = { status: 'not_synced', symbol: sym, bundle: null };
+  const missing = { status: failure || 'not_synced', symbol: sym, bundle: null };
   BUNDLE_CACHE.set(sym, missing);
   return missing;
 }
 
-function renderNotSyncedNotice(symbol) {
+function renderNotSyncedNotice(symbol, lang = DEFAULT_LANG) {
+  if (lang === 'en') {
+    return `<div class="notice warning"><span class="notice-icon" aria-hidden="true">i</span><div><strong>No static Yuanta bundle synced yet for ${esc(symbol)}</strong><p>This static research browser never calls external APIs live. To scan all 3 exchanges (HOSE, HNX, UPCOM — Pages 1–5) and generate <code>dashboard/data/yuanta/stocks/${esc(symbol)}.json.gz</code>, run the CLI scanner or trigger the GitHub Actions workflow:</p><p><code>python scripts/scan_yuanta_universe.py --exchanges HOSE,HNX,UPCOM</code> (or quick single-ticker test: <code>python scripts/scan_yuanta_universe.py --tickers ${esc(symbol)}</code>)</p></div></div>`;
+  }
   return `<div class="notice warning"><span class="notice-icon" aria-hidden="true">i</span><div><strong>Chưa có gói dữ liệu tĩnh Yuanta cho mã ${esc(symbol)}</strong><p>Môi trường trình duyệt chỉ đọc tệp tĩnh nội bộ (không gọi trực tiếp API ngoài). Để quét toàn bộ 3 sàn HOSE, HNX, UPCOM (Trang 1–5) và sinh tệp <code>dashboard/data/yuanta/stocks/${esc(symbol)}.json.gz</code>, chạy lệnh CLI hoặc bật GitHub Actions workflow:</p><p><code>python scripts/scan_yuanta_universe.py --exchanges HOSE,HNX,UPCOM</code> (hoặc kiểm thử nhanh: <code>python scripts/scan_yuanta_universe.py --tickers ${esc(symbol)}</code>)</p></div></div>`;
 }
 
-function renderPage1Overview(bundle) {
+function renderPage1Overview(bundle, lang = DEFAULT_LANG) {
+  const en = lang === 'en';
   const m = bundle.master || {};
   const ov = bundle.page1_overview || {};
   const pInfo = (Array.isArray(ov.profile_info) ? ov.profile_info[0] : ov.profile_info) || {};
@@ -126,56 +144,66 @@ function renderPage1Overview(bundle) {
   const peersRaw = Array.isArray(ov.peers) ? ov.peers : (ov.peers?.Peers || ov.peers?.data || []);
   const industryPe = ov.peers?.IndustryPE ?? ov.peers?.PE ?? rInfo.IndustryPE ?? null;
 
+  const macroLabel = translateMacroGroup(m.macro_group, m.macro_group_label, lang);
+  const subLabel = translateSubGroup(m.sub_group, m.sub_group_label || m.sector_name, lang);
+
   const splitBadge = m.split_from_financial_l1
-    ? `<span class="table-status warning" title="Bất động sản thuộc Tài chính (ICB L1) nhưng được tách sang khối Phi tài chính để không làm sai lệch trung vị Ngân hàng / Chứng khoán">· Tách khỏi Tài chính L1</span>`
+    ? (en
+      ? `<span class="table-status warning" title="Real Estate sits under ICB Level 1 Financials (8000) but is explicitly separated into Non-Financials so inventory/project cycles do not distort Bank or Brokerage peer medians">· Split from ICB L1 Financials</span>`
+      : `<span class="table-status warning" title="Bất động sản thuộc Tài chính (ICB L1) nhưng được tách sang khối Phi tài chính để không làm sai lệch trung vị Ngân hàng / Chứng khoán">· Tách khỏi Tài chính L1</span>`)
     : '';
 
   const summaryCards = `<div class="metric-grid yuanta-metrics">
-    <article class="metric-card"><div class="metric-label"><span>Giá khớp / Tham chiếu</span></div><div class="metric-value">${esc(fmtNum(m.last_price))}</div><div class="metric-basis">TC: ${esc(fmtNum(m.ref_price))} · Sàn ${esc(m.exchange || '—')}</div></article>
-    <article class="metric-card"><div class="metric-label"><span>Định giá P/E · P/B</span></div><div class="metric-value">${esc(fmtNum(m.pe))}x · ${esc(fmtNum(m.pb))}x</div><div class="metric-basis">P/E ngành: ${esc(fmtNum(industryPe))}x</div></article>
-    <article class="metric-card"><div class="metric-label"><span>ROE · ROA</span></div><div class="metric-value">${esc(fmtNum(m.roe))}% · ${esc(fmtNum(m.roa))}%</div><div class="metric-basis">Vốn hóa: ${esc(m.market_cap != null ? fmtInt(m.market_cap) : '—')}</div></article>
-    <article class="metric-card"><div class="metric-label"><span>Yuanta Stock Rating</span></div><div class="metric-value">${esc(fmtNum(m.stock_rating, 0))}</div><div class="metric-basis">Cơ bản: ${esc(fmtNum(m.fundamental_score, 0))} · RS: ${esc(fmtNum(m.technical_score, 0))} (nguồn Yuanta)</div></article>
+    <article class="metric-card"><div class="metric-label"><span>${en ? 'Last / Reference Price' : 'Giá khớp / Tham chiếu'}</span></div><div class="metric-value">${esc(fmtNum(m.last_price, 2, lang))}</div><div class="metric-basis">${en ? 'Ref' : 'TC'}: ${esc(fmtNum(m.ref_price, 2, lang))} · ${en ? 'Exchange' : 'Sàn'} ${esc(m.exchange || '—')}</div></article>
+    <article class="metric-card"><div class="metric-label"><span>${en ? 'Valuation P/E · P/B' : 'Định giá P/E · P/B'}</span></div><div class="metric-value">${esc(fmtNum(m.pe, 2, lang))}x · ${esc(fmtNum(m.pb, 2, lang))}x</div><div class="metric-basis">${en ? 'Industry P/E' : 'P/E ngành'}: ${esc(fmtNum(industryPe, 2, lang))}x</div></article>
+    <article class="metric-card"><div class="metric-label"><span>ROE · ROA</span></div><div class="metric-value">${esc(fmtNum(m.roe, 2, lang))}% · ${esc(fmtNum(m.roa, 2, lang))}%</div><div class="metric-basis">${en ? 'Market cap' : 'Vốn hóa'}: ${esc(m.market_cap != null ? fmtInt(m.market_cap, lang) : '—')}</div></article>
+    <article class="metric-card"><div class="metric-label"><span>Yuanta Stock Rating</span></div><div class="metric-value">${esc(fmtNum(m.stock_rating, 0, lang))}</div><div class="metric-basis">${en ? 'Fundamental' : 'Cơ bản'}: ${esc(fmtNum(m.fundamental_score, 0, lang))} · RS: ${esc(fmtNum(m.technical_score, 0, lang))} (${en ? 'third-party Yuanta score' : 'nguồn Yuanta'})</div></article>
   </div>`;
 
-  const companyBio = pInfo.Overview || pInfo.BusinessSummary || pInfo.Introduction || rInfo.Description || 'Chưa có mô tả chi tiết doanh nghiệp trong snapshot.';
+  const companyBio = pInfo.Overview || pInfo.BusinessSummary || pInfo.Introduction || rInfo.Description
+    || (en ? 'No detailed company description in this static snapshot.' : 'Chưa có mô tả chi tiết doanh nghiệp trong snapshot.');
 
   const bidRows = [1, 2, 3].map((lvl) => {
     const bp = bidOffer[`BidPrice${lvl}`] ?? bidOffer[`Best${lvl}Bid`] ?? sInfo[`BidPrice${lvl}`];
     const bv = bidOffer[`BidVol${lvl}`] ?? bidOffer[`Best${lvl}BidVolume`] ?? sInfo[`BidVol${lvl}`];
     const op = bidOffer[`OfferPrice${lvl}`] ?? bidOffer[`Best${lvl}Offer`] ?? sInfo[`OfferPrice${lvl}`];
     const ovVol = bidOffer[`OfferVol${lvl}`] ?? bidOffer[`Best${lvl}OfferVolume`] ?? sInfo[`OfferVol${lvl}`];
-    return `<tr><td>Mức ${lvl}</td><td class="numeric">${esc(fmtNum(bp))}</td><td class="numeric">${esc(fmtInt(bv))}</td><td class="numeric">${esc(fmtNum(op))}</td><td class="numeric">${esc(fmtInt(ovVol))}</td></tr>`;
+    return `<tr><td>${en ? `Level ${lvl}` : `Mức ${lvl}`}</td><td class="numeric">${esc(fmtNum(bp, 2, lang))}</td><td class="numeric">${esc(fmtInt(bv, lang))}</td><td class="numeric">${esc(fmtNum(op, 2, lang))}</td><td class="numeric">${esc(fmtInt(ovVol, lang))}</td></tr>`;
   }).join('');
 
-  const txRows = txs.slice(0, 15).map((tx) => `<tr><td>${esc(tx.TradingTime || tx.Time || '—')}</td><td class="numeric">${esc(fmtNum(tx.MatchPrice ?? tx.Price))}</td><td class="numeric">${esc(fmtInt(tx.MatchVolume ?? tx.Volume))}</td><td>${esc(tx.Side || tx.MatchType || '—')}</td></tr>`).join('');
+  const txRows = txs.slice(0, 15).map((tx) => `<tr><td>${esc(tx.TradingTime || tx.Time || '—')}</td><td class="numeric">${esc(fmtNum(tx.MatchPrice ?? tx.Price, 2, lang))}</td><td class="numeric">${esc(fmtInt(tx.MatchVolume ?? tx.Volume, lang))}</td><td>${esc(tx.Side || tx.MatchType || '—')}</td></tr>`).join('');
 
-  const shRows = shareholders.slice(0, 15).map((sh) => `<tr><td>${esc(sh.Name || sh.ShareHolderName || sh.FullName || '—')}</td><td class="numeric">${esc(fmtInt(sh.Quantity || sh.Shares))}</td><td class="numeric">${esc(fmtNum(sh.OwnershipPercentage ?? sh.Percent ?? sh.Rate))}%</td></tr>`).join('');
+  const shRows = shareholders.slice(0, 15).map((sh) => `<tr><td>${esc(sh.Name || sh.ShareHolderName || sh.FullName || '—')}</td><td class="numeric">${esc(fmtInt(sh.Quantity ?? sh.Shares, lang))}</td><td class="numeric">${esc(fmtNum(sh.OwnershipPercentage ?? sh.Percent ?? sh.Rate, 2, lang))}%</td></tr>`).join('');
 
   const leaderRows = leaders.slice(0, 12).map((ld) => `<tr><td>${esc(ld.Name || ld.FullName || '—')}</td><td>${esc(ld.Position || ld.Title || '—')}</td></tr>`).join('');
 
   const peerRows = peersRaw.slice(0, 25).map((pr) => {
     const pCode = pr.StockCode || pr.Symbol || pr.code || '';
-    return `<tr><td><a class="ticker-link mono" href="?view=stocks&ticker=${encodeURIComponent(pCode)}&stab=overview" data-route>${esc(pCode)}</a></td><td>${esc(pr.CompanyName || pr.Name || '—')}</td><td class="numeric">${esc(fmtNum(pr.ClosePrice ?? pr.Price))}</td><td class="numeric">${esc(fmtNum(pr.PE))}</td><td class="numeric">${esc(fmtNum(pr.PB))}</td><td class="numeric">${esc(fmtNum(pr.ROE))}%</td></tr>`;
+    const href = withLangHref(`?view=stocks&ticker=${encodeURIComponent(pCode)}&stab=overview`, lang);
+    return `<tr><td><a class="ticker-link mono" href="${esc(href)}" data-route>${esc(pCode)}</a></td><td>${esc(pr.CompanyName || pr.Name || '—')}</td><td class="numeric">${esc(fmtNum(pr.ClosePrice ?? pr.Price, 2, lang))}</td><td class="numeric">${esc(fmtNum(pr.PE, 2, lang))}</td><td class="numeric">${esc(fmtNum(pr.PB, 2, lang))}</td><td class="numeric">${esc(fmtNum(pr.ROE, 2, lang))}%</td></tr>`;
   }).join('');
 
+  const snapTime = esc(bundle.scanned_at ? formatDate(bundle.scanned_at, lang) : (en ? 'time not recorded' : 'chưa ghi nhận thời gian'));
+
   return `<div class="yuanta-section">
-    <div class="notice"><span class="notice-icon" aria-hidden="true">i</span><div><strong>Nguồn dữ liệu: Yuanta YSradar (snapshot tĩnh ${esc((bundle.scanned_at || '').slice(0, 19).replace('T', ' '))})</strong><p>Nhóm ngành 3 khối: <strong>${esc(m.macro_group_label || m.macro_group)}</strong> · Ngành chi tiết: <strong>${esc(m.sub_group_label || m.sector_name || '—')}</strong> ${splitBadge}. Điểm Stock Rating là chỉ báo định lượng của Yuanta, không phải khuyến nghị của dự án.</p></div></div>
+    <div class="notice"><span class="notice-icon" aria-hidden="true">i</span><div><strong>${en ? `Data source: Yuanta YSradar (static snapshot ${snapTime})` : `Nguồn dữ liệu: Yuanta YSradar (snapshot tĩnh ${snapTime})`}</strong><p>${en ? '3-Group Macro Taxonomy' : 'Nhóm ngành 3 khối'}: <strong>${esc(macroLabel)}</strong> · ${en ? 'Peer Sub-sector' : 'Ngành chi tiết'}: <strong>${esc(subLabel)}</strong> ${splitBadge}. ${en ? 'Stock Rating is a third-party quantitative score from Yuanta YSradar, not a recommendation of this repository.' : 'Điểm Stock Rating là chỉ báo định lượng của Yuanta, không phải khuyến nghị của dự án.'}</p></div></div>
     ${summaryCards}
     <div class="detail-grid">
-      <section class="panel"><div class="panel-header"><div><h3>Tổng quan doanh nghiệp &amp; Ban lãnh đạo</h3><p>ICB: ${esc([m.icb_l1, m.icb_l2, m.icb_l3].filter(Boolean).join(' → ') || m.sector_name || 'Chưa phân loại')}</p></div></div><p class="yuanta-bio">${esc(companyBio)}</p>${leaderRows ? `<div class="table-wrap"><table><thead><tr><th>Họ tên</th><th>Chức vụ</th></tr></thead><tbody>${leaderRows}</tbody></table></div>` : '<p class="muted">Danh sách lãnh đạo nằm trong hồ sơ nguồn hoặc chưa công bố riêng.</p>'}</section>
-      <section class="panel"><div class="panel-header"><div><h3>Tỷ lệ sở hữu / Cổ đông lớn</h3><p>Nguồn: profile/shareholder</p></div></div><div class="table-wrap"><table><thead><tr><th>Cổ đông</th><th class="numeric">Số cổ phiếu</th><th class="numeric">Tỷ lệ</th></tr></thead><tbody>${shRows || '<tr><td colspan="3" class="no-results">Chưa có danh sách cổ đông lớn.</td></tr>'}</tbody></table></div></section>
+      <section class="panel"><div class="panel-header"><div><h3>${en ? 'Company Profile & Executive Leadership' : 'Tổng quan doanh nghiệp & Ban lãnh đạo'}</h3><p>${en ? 'Provider text may be in Vietnamese. · ' : ''}ICB: ${esc([m.icb_l1, m.icb_l2, m.icb_l3].filter(Boolean).join(' → ') || m.sector_name || (en ? 'Unclassified' : 'Chưa phân loại'))}</p></div></div><p class="yuanta-bio">${esc(companyBio)}</p>${leaderRows ? `<div class="table-wrap"><table><thead><tr><th>${en ? 'Full Name' : 'Họ tên'}</th><th>${en ? 'Position' : 'Chức vụ'}</th></tr></thead><tbody>${leaderRows}</tbody></table></div>` : `<p class="muted">${en ? 'Leadership roster not separately listed in this snapshot.' : 'Danh sách lãnh đạo nằm trong hồ sơ nguồn hoặc chưa công bố riêng.'}</p>`}</section>
+      <section class="panel"><div class="panel-header"><div><h3>${en ? 'Major Shareholders' : 'Tỷ lệ sở hữu / Cổ đông lớn'}</h3><p>${en ? 'Source: profile/shareholder' : 'Nguồn: profile/shareholder'}</p></div></div><div class="table-wrap"><table><thead><tr><th>${en ? 'Shareholder' : 'Cổ đông'}</th><th class="numeric">${en ? 'Shares' : 'Số cổ phiếu'}</th><th class="numeric">${en ? 'Ownership' : 'Tỷ lệ'}</th></tr></thead><tbody>${shRows || `<tr><td colspan="3" class="no-results">${en ? 'No major shareholders listed.' : 'Chưa có danh sách cổ đông lớn.'}</td></tr>`}</tbody></table></div></section>
     </div>
     <div class="detail-grid">
-      <section class="panel"><div class="panel-header"><div><h3>Đặt mua / Đặt bán (Sổ lệnh snapshot)</h3><p>Nguồn: last_bid_offer (odd_lot=false)</p></div></div><div class="table-wrap"><table><thead><tr><th>Bước giá</th><th class="numeric">Giá mua</th><th class="numeric">KL mua</th><th class="numeric">Giá bán</th><th class="numeric">KL bán</th></tr></thead><tbody>${bidRows}</tbody></table></div></section>
-      <section class="panel"><div class="panel-header"><div><h3>Khớp lệnh gần nhất</h3><p>Nguồn: list_transaction (tối đa 50 lệnh tại thời điểm quét)</p></div></div><div class="table-wrap"><table><thead><tr><th>Thời gian</th><th class="numeric">Giá khớp</th><th class="numeric">KL khớp</th><th>Phía</th></tr></thead><tbody>${txRows || '<tr><td colspan="4" class="no-results">Chưa có lệnh khớp trong phiên tại thời điểm snapshot.</td></tr>'}</tbody></table></div></section>
+      <section class="panel"><div class="panel-header"><div><h3>${en ? 'Order Book Snapshot (Bid / Ask)' : 'Đặt mua / Đặt bán (Sổ lệnh snapshot)'}</h3><p>${en ? 'Source: last_bid_offer (odd_lot=false)' : 'Nguồn: last_bid_offer (odd_lot=false)'}</p></div></div><div class="table-wrap"><table><thead><tr><th>${en ? 'Depth' : 'Bước giá'}</th><th class="numeric">${en ? 'Bid Price' : 'Giá mua'}</th><th class="numeric">${en ? 'Bid Vol' : 'KL mua'}</th><th class="numeric">${en ? 'Ask Price' : 'Giá bán'}</th><th class="numeric">${en ? 'Ask Vol' : 'KL bán'}</th></tr></thead><tbody>${bidRows}</tbody></table></div></section>
+      <section class="panel"><div class="panel-header"><div><h3>${en ? 'Recent Matched Trades' : 'Khớp lệnh gần nhất'}</h3><p>${en ? 'Source: list_transaction (up to 50 trades at scan time); trade time is source-provided, timezone unverified' : 'Nguồn: list_transaction (tối đa 50 lệnh tại thời điểm quét)'}</p></div></div><div class="table-wrap"><table><thead><tr><th>${en ? 'Time' : 'Thời gian'}</th><th class="numeric">${en ? 'Price' : 'Giá khớp'}</th><th class="numeric">${en ? 'Volume' : 'KL khớp'}</th><th>${en ? 'Side' : 'Phía'}</th></tr></thead><tbody>${txRows || `<tr><td colspan="4" class="no-results">${en ? 'No matched intraday trades recorded at snapshot time.' : 'Chưa có lệnh khớp trong phiên tại thời điểm snapshot.'}</td></tr>`}</tbody></table></div></section>
     </div>
-    <section class="panel"><div class="panel-header"><div><h3>Cổ phiếu cùng ngành (${fmtInt(peersRaw.length)} mã · P/E ngành: ${esc(fmtNum(industryPe))})</h3><p>Nguồn: profile/peers?num_peers=1000 (hiển thị 25 mã đầu)</p></div></div><div class="table-wrap"><table><thead><tr><th>Mã</th><th>Tên doanh nghiệp</th><th class="numeric">Thị giá</th><th class="numeric">P/E</th><th class="numeric">P/B</th><th class="numeric">ROE</th></tr></thead><tbody>${peerRows || '<tr><td colspan="6" class="no-results">Chưa có danh sách cùng ngành.</td></tr>'}</tbody></table></div></section>
+    <section class="panel"><div class="panel-header"><div><h3>${en ? `Industry Peers (${fmtInt(peersRaw.length, lang)} stocks · Industry P/E: ${esc(fmtNum(industryPe, 2, lang))})` : `Cổ phiếu cùng ngành (${fmtInt(peersRaw.length, lang)} mã · P/E ngành: ${esc(fmtNum(industryPe, 2, lang))})`}</h3><p>${en ? 'Source: profile/peers?num_peers=1000 (showing first 25)' : 'Nguồn: profile/peers?num_peers=1000 (hiển thị 25 mã đầu)'}</p></div></div><div class="table-wrap"><table><thead><tr><th>${en ? 'Ticker' : 'Mã'}</th><th>${en ? 'Company' : 'Tên doanh nghiệp'}</th><th class="numeric">${en ? 'Price' : 'Thị giá'}</th><th class="numeric">P/E</th><th class="numeric">P/B</th><th class="numeric">ROE</th></tr></thead><tbody>${peerRows || `<tr><td colspan="6" class="no-results">${en ? 'No peer list available.' : 'Chưa có danh sách cùng ngành.'}</td></tr>`}</tbody></table></div></section>
   </div>`;
 }
 
-function renderSimpleLineSvg(points, { title, yKey, xKey = 'trading_date', color = '#247f7a', bar = false } = {}) {
-  const valid = (points || []).filter((r) => r && Number.isFinite(Number(r[yKey])));
-  if (!valid.length) return `<div class="chart-empty">Chưa có chuỗi điểm cho ${esc(title)}.</div>`;
+function renderSimpleLineSvg(points, { title, yKey, xKey = 'trading_date', color = '#247f7a', bar = false, lang = DEFAULT_LANG } = {}) {
+  const en = lang === 'en';
+  const valid = (points || []).filter((r) => r && r[yKey] !== null && r[yKey] !== undefined && r[yKey] !== '' && Number.isFinite(Number(r[yKey])));
+  if (!valid.length) return `<div class="chart-empty">${en ? `No series points available for ${esc(title)}.` : `Chưa có chuỗi điểm cho ${esc(title)}.`}</div>`;
   const w = 680; const h = 170; const pad = { l: 54, r: 12, t: 12, b: 26 };
   const pw = w - pad.l - pad.r; const ph = h - pad.t - pad.b;
   const vals = valid.map((r) => Number(r[yKey]));
@@ -199,7 +227,7 @@ function renderSimpleLineSvg(points, { title, yKey, xKey = 'trading_date', color
     const d = valid.map((r, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(Number(r[yKey])).toFixed(1)}`).join(' ');
     shape = `<path d="${d}" fill="none" stroke="${color}" stroke-width="2"/>`;
   }
-  return `<div class="chart-box"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(title)}"><line x1="${pad.l}" x2="${w - pad.r}" y1="${pad.t + ph}" y2="${pad.t + ph}" stroke="#dde5e8"/><text x="${pad.l - 6}" y="${pad.t + 8}" text-anchor="end" font-size="9" fill="#7c8b94">${esc(fmtNum(max, 1))}</text><text x="${pad.l - 6}" y="${pad.t + ph}" text-anchor="end" font-size="9" fill="#7c8b94">${esc(fmtNum(min, 1))}</text>${shape}<text x="${pad.l}" y="${h - 6}" font-size="9" fill="#7c8b94">${esc(valid[0][xKey] || '')}</text><text x="${w - pad.r}" y="${h - 6}" text-anchor="end" font-size="9" fill="#7c8b94">${esc(valid.at(-1)[xKey] || '')}</text></svg></div>`;
+  return `<div class="chart-box"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(title)}"><line x1="${pad.l}" x2="${w - pad.r}" y1="${pad.t + ph}" y2="${pad.t + ph}" stroke="#dde5e8"/><text x="${pad.l - 6}" y="${pad.t + 8}" text-anchor="end" font-size="9" fill="#7c8b94">${esc(fmtNum(max, 1, lang))}</text><text x="${pad.l - 6}" y="${pad.t + ph}" text-anchor="end" font-size="9" fill="#7c8b94">${esc(fmtNum(min, 1, lang))}</text>${shape}<text x="${pad.l}" y="${h - 6}" font-size="9" fill="#7c8b94">${esc(valid[0][xKey] || '')}</text><text x="${w - pad.r}" y="${h - 6}" text-anchor="end" font-size="9" fill="#7c8b94">${esc(valid.at(-1)[xKey] || '')}</text></svg></div>`;
 }
 
 function normalizeForeignScreenerSeries(raw) {
@@ -210,17 +238,32 @@ function normalizeForeignScreenerSeries(raw) {
     const dt = item.TradingDate || item.Date || item.ngay || item.time || '';
     const v = item.Value ?? item.NetVal ?? item.GTGD ?? item.TyLeVonHoa ?? item.value_1 ?? item.val ?? null;
     return { label: String(dt).slice(0, 10), val: v != null ? Number(v) : null };
-  }).filter((r) => r.label && Number.isFinite(r.val));
+  }).filter((r) => r.label && r.val !== null && Number.isFinite(r.val));
 }
 
-function renderPage2Trading(bundle, params) {
+function pageLinks(params, symbol, tab, key, page, totalPages, lang) {
+  const make = (next) => {
+    const updated = new URLSearchParams(params);
+    updated.set('view', 'stocks'); updated.set('ticker', symbol); updated.set('stab', tab);
+    updated.set(key, String(next)); updated.set('lang', lang);
+    return `?${updated.toString()}`;
+  };
+  const label = lang === 'en' ? `Page ${page} of ${totalPages}` : `Trang ${page} / ${totalPages}`;
+  const prev = page > 1 ? `<a class="button" href="${esc(make(page - 1))}" data-route>${lang === 'en' ? '← Previous' : '← Trước'}</a>` : '';
+  const next = page < totalPages ? `<a class="button" href="${esc(make(page + 1))}" data-route>${lang === 'en' ? 'Next →' : 'Sau →'}</a>` : '';
+  return `<div class="pagination"><span>${esc(label)}</span><div class="pagination-actions">${prev}${next}</div></div>`;
+}
+
+function renderPage2Trading(bundle, params, lang = DEFAULT_LANG) {
+  const en = lang === 'en';
   const tr = bundle.page2_trading || {};
   const allDaily = Array.isArray(tr.daily) ? tr.daily : [];
   const tfrom = params.get('tfrom') || '';
   const tto = params.get('tto') || '';
   const filtered = allDaily.filter((r) => (!tfrom || r.trading_date >= tfrom) && (!tto || r.trading_date <= tto));
   const desc = filtered.slice().reverse();
-  const page = Math.max(1, Number(params.get('tpage') || 1));
+  const rawPage = Number(params.get('tpage') || 1);
+  const page = Number.isFinite(rawPage) ? Math.max(1, Math.floor(rawPage)) : 1;
   const pageSize = 25;
   const totalPages = Math.max(1, Math.ceil(desc.length / pageSize));
   const curPage = Math.min(page, totalPages);
@@ -229,7 +272,7 @@ function renderPage2Trading(bundle, params) {
   const tableRows = rows.map((r) => {
     const chg = r.pct_change;
     const toneClass = chg > 0 ? 'price-up' : chg < 0 ? 'price-down' : 'price-ref';
-    return `<tr><td>${esc(r.trading_date)}</td><td class="numeric ${toneClass}">${esc(fmtNum(r.close))}</td><td class="numeric ${toneClass}">${esc(fmtSignedPct(chg))}</td><td class="numeric">${esc(fmtNum(r.open))}</td><td class="numeric">${esc(fmtNum(r.high))}</td><td class="numeric">${esc(fmtNum(r.low))}</td><td class="numeric">${esc(fmtInt(r.volume))}</td><td class="numeric">${esc(fmtInt(r.foreign_buy_vol))}</td><td class="numeric">${esc(fmtInt(r.foreign_sell_vol))}</td><td class="numeric">${esc(fmtInt(r.foreign_net_vol))}</td><td class="numeric">${esc(r.foreign_owned_rate != null ? `${fmtNum(r.foreign_owned_rate)}%` : '—')}</td></tr>`;
+    return `<tr><td>${esc(r.trading_date ? formatDate(r.trading_date, lang) : '—')}</td><td class="numeric ${toneClass}">${esc(fmtNum(r.close, 2, lang))}</td><td class="numeric ${toneClass}">${esc(fmtSignedPct(chg, 2, lang))}</td><td class="numeric">${esc(fmtNum(r.open, 2, lang))}</td><td class="numeric">${esc(fmtNum(r.high, 2, lang))}</td><td class="numeric">${esc(fmtNum(r.low, 2, lang))}</td><td class="numeric">${esc(fmtInt(r.volume, lang))}</td><td class="numeric">${esc(fmtInt(r.foreign_buy_vol, lang))}</td><td class="numeric">${esc(fmtInt(r.foreign_sell_vol, lang))}</td><td class="numeric">${esc(fmtInt(r.foreign_net_vol, lang))}</td><td class="numeric">${esc(r.foreign_owned_rate != null ? `${fmtNum(r.foreign_owned_rate, 2, lang)}%` : '—')}</td></tr>`;
   }).join('');
 
   const fc = tr.foreign_charts || {};
@@ -241,29 +284,31 @@ function renderPage2Trading(bundle, params) {
     <form class="control-bar" data-filter-form>
       <input type="hidden" name="ticker" value="${esc(bundle.symbol)}">
       <input type="hidden" name="stab" value="trading">
-      <div class="field"><label for="yuanta-tfrom">Từ ngày</label><input id="yuanta-tfrom" name="tfrom" type="date" value="${esc(tfrom)}"></div>
-      <div class="field"><label for="yuanta-tto">Đến ngày</label><input id="yuanta-tto" name="tto" type="date" value="${esc(tto)}"></div>
-      <button class="button primary" type="submit">Lọc ngày</button>
-      <span class="toolbar-note">${fmtInt(filtered.length)} / ${fmtInt(allDaily.length)} phiên (2010–nay)</span>
+      <div class="field"><label for="yuanta-tfrom">${en ? 'From date' : 'Từ ngày'}</label><input id="yuanta-tfrom" name="tfrom" type="date" value="${esc(tfrom)}"></div>
+      <div class="field"><label for="yuanta-tto">${en ? 'To date' : 'Đến ngày'}</label><input id="yuanta-tto" name="tto" type="date" value="${esc(tto)}"></div>
+      <button class="button primary" type="submit">${en ? 'Filter dates' : 'Lọc ngày'}</button>
+      <span class="toolbar-note">${en ? `${fmtInt(filtered.length, lang)} / ${fmtInt(allDaily.length, lang)} sessions (2010–present)` : `${fmtInt(filtered.length, lang)} / ${fmtInt(allDaily.length, lang)} phiên (2010–nay)`}</span>
     </form>
     <div class="detail-grid">
-      <section class="panel"><div class="panel-header"><div><h3>Lịch sử giá đóng cửa</h3><p>Nguồn: market_watch/price_history</p></div></div>${renderSimpleLineSvg(filtered.slice(-500), { title: 'Giá đóng cửa', yKey: 'close' })}</section>
-      <section class="panel"><div class="panel-header"><div><h3>Khối lượng mua/bán ròng khối ngoại</h3><p>Nguồn: price_history &amp; price_history_foreign</p></div></div>${renderSimpleLineSvg(filtered.slice(-180), { title: 'Mua bán ròng khối ngoại', yKey: 'foreign_net_vol', bar: true })}</section>
+      <section class="panel"><div class="panel-header"><div><h3>${en ? 'Historical Close Price' : 'Lịch sử giá đóng cửa'}</h3><p>${en ? 'Source: market_watch/price_history' : 'Nguồn: market_watch/price_history'}</p></div></div>${renderSimpleLineSvg(filtered.slice(-500), { title: en ? 'Close Price' : 'Giá đóng cửa', yKey: 'close', lang })}</section>
+      <section class="panel"><div class="panel-header"><div><h3>${en ? 'Foreign Net Volume Flow' : 'Khối lượng mua/bán ròng khối ngoại'}</h3><p>${en ? 'Source: price_history & price_history_foreign' : 'Nguồn: price_history & price_history_foreign'}</p></div></div>${renderSimpleLineSvg(filtered.slice(-180), { title: en ? 'Foreign Net Volume' : 'Mua bán ròng khối ngoại', yKey: 'foreign_net_vol', bar: true, lang })}</section>
     </div>
     <div class="detail-grid">
-      <section class="panel"><div class="panel-header"><div><h3>Ngày giao dịch &amp; GTGD bình quân khối ngoại</h3><p>Nguồn: foreign_screener/ngay_giao_dich &amp; gtgd_binh_quan_chart</p></div></div>${cGtgd.length ? renderSimpleLineSvg(cGtgd, { title: 'GTGD bình quân khối ngoại', yKey: 'val', xKey: 'label', bar: true }) : cNgay.length ? renderSimpleLineSvg(cNgay, { title: 'Ngày giao dịch khối ngoại', yKey: 'val', xKey: 'label', bar: true }) : '<div class="chart-empty">Chưa có chuỗi foreign_screener cho kỳ lọc.</div>'}</section>
-      <section class="panel"><div class="panel-header"><div><h3>Tỷ lệ vốn hóa khối ngoại</h3><p>Nguồn: foreign_screener/ty_le_von_hoa_chart</p></div></div>${cVh.length ? renderSimpleLineSvg(cVh, { title: 'Tỷ lệ vốn hóa khối ngoại', yKey: 'val', xKey: 'label', color: '#4d6b88' }) : '<div class="chart-empty">Chưa có chuỗi tỷ lệ vốn hóa khối ngoại.</div>'}</section>
+      <section class="panel"><div class="panel-header"><div><h3>${en ? 'Foreign Trading Sessions & Average Value' : 'Ngày giao dịch & GTGD bình quân khối ngoại'}</h3><p>${en ? 'Source: foreign_screener/ngay_giao_dich & gtgd_binh_quan_chart' : 'Nguồn: foreign_screener/ngay_giao_dich & gtgd_binh_quan_chart'}</p></div></div>${cGtgd.length ? renderSimpleLineSvg(cGtgd, { title: en ? 'Foreign Average Trading Value' : 'GTGD bình quân khối ngoại', yKey: 'val', xKey: 'label', bar: true, lang }) : cNgay.length ? renderSimpleLineSvg(cNgay, { title: en ? 'Foreign Trading Sessions' : 'Ngày giao dịch khối ngoại', yKey: 'val', xKey: 'label', bar: true, lang }) : `<div class="chart-empty">${en ? 'No foreign_screener series for this window.' : 'Chưa có chuỗi foreign_screener cho kỳ lọc.'}</div>`}</section>
+      <section class="panel"><div class="panel-header"><div><h3>${en ? 'Foreign Market-Cap Ownership Ratio' : 'Tỷ lệ vốn hóa khối ngoại'}</h3><p>${en ? 'Source: foreign_screener/ty_le_von_hoa_chart' : 'Nguồn: foreign_screener/ty_le_von_hoa_chart'}</p></div></div>${cVh.length ? renderSimpleLineSvg(cVh, { title: en ? 'Foreign Market-Cap Ratio' : 'Tỷ lệ vốn hóa khối ngoại', yKey: 'val', xKey: 'label', color: '#4d6b88', lang }) : `<div class="chart-empty">${en ? 'No foreign market-cap series available.' : 'Chưa có chuỗi tỷ lệ vốn hóa khối ngoại.'}</div>`}</section>
     </div>
-    <section class="panel"><div class="panel-header"><div><h3>Bảng OHLCV &amp; Giao dịch nước ngoài</h3><p>Trang ${curPage} / ${totalPages}</p></div></div>
-      <div class="table-wrap"><table><thead><tr><th>Ngày</th><th class="numeric">Đóng cửa</th><th class="numeric">% Đổi</th><th class="numeric">Mở cửa</th><th class="numeric">Cao nhất</th><th class="numeric">Thấp nhất</th><th class="numeric">Tổng KL</th><th class="numeric">KL Mua NN</th><th class="numeric">KL Bán NN</th><th class="numeric">KL Ròng NN</th><th class="numeric">% Sở hữu NN</th></tr></thead><tbody>${tableRows || '<tr><td colspan="11" class="no-results">Không có phiên giao dịch trong khoảng lọc.</td></tr>'}</tbody></table></div>
+    <section class="panel"><div class="panel-header"><div><h3>${en ? 'OHLCV & Foreign Flow Ledger' : 'Bảng OHLCV & Giao dịch nước ngoài'}</h3><p>${en ? `Page ${curPage} of ${totalPages}` : `Trang ${curPage} / ${totalPages}`}</p></div></div>
+      <div class="table-wrap"><table><thead><tr><th>${en ? 'Date' : 'Ngày'}</th><th class="numeric">${en ? 'Close' : 'Đóng cửa'}</th><th class="numeric">${en ? '% Chg' : '% Đổi'}</th><th class="numeric">${en ? 'Open' : 'Mở cửa'}</th><th class="numeric">${en ? 'High' : 'Cao nhất'}</th><th class="numeric">${en ? 'Low' : 'Thấp nhất'}</th><th class="numeric">${en ? 'Total Vol' : 'Tổng KL'}</th><th class="numeric">${en ? 'Foreign Buy' : 'KL Mua NN'}</th><th class="numeric">${en ? 'Foreign Sell' : 'KL Bán NN'}</th><th class="numeric">${en ? 'Foreign Net' : 'KL Ròng NN'}</th><th class="numeric">${en ? '% Foreign Owned' : '% Sở hữu NN'}</th></tr></thead><tbody>${tableRows || `<tr><td colspan="11" class="no-results">${en ? 'No trading sessions in the selected range.' : 'Không có phiên giao dịch trong khoảng lọc.'}</td></tr>`}</tbody></table></div>
+      ${pageLinks(params, bundle.symbol, 'trading', 'tpage', curPage, totalPages, lang)}
     </section>
   </div>`;
 }
 
-function renderRadarSvg(metrics) {
+function renderRadarSvg(metrics, lang = DEFAULT_LANG) {
+  const en = lang === 'en';
   const valid = (metrics || []).filter((m) => Number.isFinite(m.favorable_percentile));
   if (valid.length < 3) {
-    return '<div class="chart-empty">Cần tối thiểu 3 chỉ số có phân vị ngành để dựng biểu đồ Radar.</div>';
+    return `<div class="chart-empty">${en ? 'At least 3 metrics with peer percentiles are required to plot the Radar chart.' : 'Cần tối thiểu 3 chỉ số có phân vị ngành để dựng biểu đồ Radar.'}</div>`;
   }
   const cx = 175; const cy = 135; const rMax = 92;
   const n = valid.length;
@@ -279,49 +324,60 @@ function renderRadarSvg(metrics) {
   const axes = valid.map((m, i) => {
     const [ex, ey] = pt(i, 100);
     const [lx, ly] = pt(i, 118);
-    return `<line x1="${cx}" y1="${cy}" x2="${ex.toFixed(1)}" y2="${ey.toFixed(1)}" stroke="#dde6e9"/><text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" font-size="9" fill="#52646d">${esc(m.label)}</text>`;
+    const lbl = translateCorrelationMetric(m.key, m.label, lang);
+    return `<line x1="${cx}" y1="${cy}" x2="${ex.toFixed(1)}" y2="${ey.toFixed(1)}" stroke="#dde6e9"/><text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" font-size="9" fill="#52646d">${esc(lbl)}</text>`;
   }).join('');
   const stockPoly = valid.map((m, i) => pt(i, m.favorable_percentile).map((v) => v.toFixed(1)).join(',')).join(' ');
   const medPoly = valid.map((_, i) => pt(i, 50).map((v) => v.toFixed(1)).join(',')).join(' ');
-  return `<div class="chart-box"><svg viewBox="0 0 350 270" role="img" aria-label="Biểu đồ Radar phân vị tương quan ngành">${rings}${axes}<polygon points="${medPoly}" fill="none" stroke="#8597a0" stroke-width="1.3" stroke-dasharray="4 3"/><polygon points="${stockPoly}" fill="rgba(36,127,122,0.18)" stroke="#247f7a" stroke-width="2.2"/></svg><div class="chart-legend"><span class="legend-item"><span class="legend-line"></span>Phân vị thuận lợi của mã (0–100)</span><span class="legend-item"><span class="legend-line snapshot"></span>Trung vị ngành (P50)</span></div></div>`;
+  return `<div class="chart-box"><svg viewBox="0 0 350 270" role="img" aria-label="${en ? 'Peer correlation percentile radar chart' : 'Biểu đồ Radar phân vị tương quan ngành'}">${rings}${axes}<polygon points="${medPoly}" fill="none" stroke="#8597a0" stroke-width="1.3" stroke-dasharray="4 3"/><polygon points="${stockPoly}" fill="rgba(36,127,122,0.18)" stroke="#247f7a" stroke-width="2.2"/></svg><div class="chart-legend"><span class="legend-item"><span class="legend-line"></span>${en ? 'Stock favorable percentile (0–100)' : 'Phân vị thuận lợi của mã (0–100)'}</span><span class="legend-item"><span class="legend-line snapshot"></span>${en ? 'Peer median (P50)' : 'Trung vị ngành (P50)'}</span></div></div>`;
 }
 
-export function renderPage3Correlation(bundle) {
+export function renderPage3Correlation(bundle, lang = DEFAULT_LANG) {
+  const nl = normalizeLang(lang) || DEFAULT_LANG;
+  const en = nl === 'en';
   const corr = bundle.page3_sector_correlation;
   if (!corr || !Array.isArray(corr.metrics)) {
-    return '<div class="panel-empty"><strong>Chưa đủ dữ liệu BCTC để tính tương quan ngành</strong></div>';
+    return `<div class="panel-empty"><strong>${en ? 'Insufficient financial statement data to compute sector correlation' : 'Chưa đủ dữ liệu BCTC để tính tương quan ngành'}</strong></div>`;
   }
+  const macroLabel = translateMacroGroup(corr.macro_group, corr.macro_group_label, nl);
+  const subLabel = translateSubGroup(corr.sub_group, corr.sub_group_label, nl);
+
   const splitNote = corr.split_from_financial_l1
-    ? `<div class="notice warning"><span class="notice-icon" aria-hidden="true">i</span><div><strong>Đã tách nhóm ngành trọng yếu: Bất động sản</strong><p>Trong chuẩn ICB cấp 1, Bất động sản nằm chung dưới nhánh "Tài chính" (8000). Hệ thống đã tự động tách Bất động sản sang khối <strong>Phi tài chính · Bất động sản</strong> để so sánh trung vị đúng bản chất chu kỳ tồn kho/dự án, không trộn lẫn với Ngân hàng hay Chứng khoán.</p></div></div>`
+    ? (en
+      ? `<div class="notice warning"><span class="notice-icon" aria-hidden="true">i</span><div><strong>Key Sub-sector Separated: Real Estate</strong><p>Under standard ICB Level 1, Real Estate (8600) is grouped under Financials (8000). This engine explicitly separates Real Estate into <strong>Non-Financials · Real Estate (split from ICB L1 Financials)</strong> so project/inventory cycles are benchmarked against Real Estate peers rather than pooled with Banks or Securities firms.</p></div></div>`
+      : `<div class="notice warning"><span class="notice-icon" aria-hidden="true">i</span><div><strong>Đã tách nhóm ngành trọng yếu: Bất động sản</strong><p>Trong chuẩn ICB cấp 1, Bất động sản nằm chung dưới nhánh "Tài chính" (8000). Hệ thống đã tự động tách Bất động sản sang khối <strong>Phi tài chính · Bất động sản</strong> để so sánh trung vị đúng bản chất chu kỳ tồn kho/dự án, không trộn lẫn với Ngân hàng hay Chứng khoán.</p></div></div>`)
     : '';
 
   const barsHtml = corr.metrics.map((m) => {
+    const metricLabel = translateCorrelationMetric(m.key, m.label, nl);
     const vals = [m.value, m.peer_median, m.macro_median].filter((v) => v != null && Number.isFinite(Number(v))).map(Number);
     const maxAbs = Math.max(1e-6, ...vals.map((v) => Math.abs(v)));
     const widthPct = (v) => (v == null || !Number.isFinite(Number(v)) ? 0 : Math.min(100, (Math.abs(Number(v)) / maxAbs) * 100));
     return `<div class="multiscale-card">
-      <div class="multiscale-head"><strong>${esc(m.label)}</strong><span>Phân vị ngành: ${m.favorable_percentile != null ? `${fmtNum(m.favorable_percentile, 0)}%` : '—'}</span></div>
-      <div class="multiscale-row"><span>${esc(bundle.symbol)}</span><div class="multiscale-track"><div class="multiscale-fill primary" style="width:${widthPct(m.value).toFixed(1)}%"></div></div><strong>${esc(fmtNum(m.value))}</strong></div>
-      <div class="multiscale-row"><span>Trung vị ${esc(corr.sub_group_label)} (${fmtInt(m.peer_count)})</span><div class="multiscale-track"><div class="multiscale-fill peer" style="width:${widthPct(m.peer_median).toFixed(1)}%"></div></div><strong>${esc(fmtNum(m.peer_median))}</strong></div>
-      <div class="multiscale-row"><span>Trung vị khối ${esc(corr.macro_group_label)} (${fmtInt(m.macro_count)})</span><div class="multiscale-track"><div class="multiscale-fill macro" style="width:${widthPct(m.macro_median).toFixed(1)}%"></div></div><strong>${esc(fmtNum(m.macro_median))}</strong></div>
+      <div class="multiscale-head"><strong>${esc(metricLabel)}</strong><span>${en ? 'Peer percentile' : 'Phân vị ngành'}: ${m.favorable_percentile != null ? `${fmtNum(m.favorable_percentile, 0, nl)}%` : '—'}</span></div>
+      <div class="multiscale-row"><span>${esc(bundle.symbol)}</span><div class="multiscale-track"><div class="multiscale-fill primary" style="width:${widthPct(m.value).toFixed(1)}%"></div></div><strong>${esc(fmtNum(m.value, 2, nl))}</strong></div>
+      <div class="multiscale-row"><span>${en ? `${esc(subLabel)} median (${fmtInt(m.peer_count, nl)})` : `Trung vị ${esc(subLabel)} (${fmtInt(m.peer_count, nl)})`}</span><div class="multiscale-track"><div class="multiscale-fill peer" style="width:${widthPct(m.peer_median).toFixed(1)}%"></div></div><strong>${esc(fmtNum(m.peer_median, 2, nl))}</strong></div>
+      <div class="multiscale-row"><span>${en ? `${esc(macroLabel)} group median (${fmtInt(m.macro_count, nl)})` : `Trung vị khối ${esc(macroLabel)} (${fmtInt(m.macro_count, nl)})`}</span><div class="multiscale-track"><div class="multiscale-fill macro" style="width:${widthPct(m.macro_median).toFixed(1)}%"></div></div><strong>${esc(fmtNum(m.macro_median, 2, nl))}</strong></div>
     </div>`;
   }).join('');
 
   return `<div class="yuanta-section">
     ${splitNote}
     <div class="detail-grid">
-      <section class="panel"><div class="panel-header"><div><h3>Vị thế phân vị trong ngành (${esc(corr.sub_group_label)})</h3><p>Khối: ${esc(corr.macro_group_label)} · Kỳ BCTC gần nhất: ${esc(corr.latest_period || '—')} · Cỡ mẫu ngành: ${fmtInt(corr.peer_universe_size)} mã</p></div></div>${renderRadarSvg(corr.metrics)}</section>
-      <section class="panel"><div class="panel-header"><div><h3>So sánh đa thang đo (Multi-scale vs Trung vị ngành)</h3><p>Tính trực tiếp từ dữ liệu Trang 4 (CSTC &amp; BCTT); mỗi chỉ số có trục tỷ lệ riêng.</p></div></div><div class="multiscale-grid">${barsHtml}</div></section>
+      <section class="panel"><div class="panel-header"><div><h3>${en ? `Peer Percentile Positioning (${esc(subLabel)})` : `Vị thế phân vị trong ngành (${esc(subLabel)})`}</h3><p>${en ? `Macro group: ${esc(macroLabel)} · Latest period: ${esc(corr.latest_period || '—')} · Peer sample: ${fmtInt(corr.peer_universe_size, nl)} stocks` : `Khối: ${esc(macroLabel)} · Kỳ BCTC gần nhất: ${esc(corr.latest_period || '—')} · Cỡ mẫu ngành: ${fmtInt(corr.peer_universe_size, nl)} mã`}</p></div></div>${renderRadarSvg(corr.metrics, nl)}</section>
+      <section class="panel"><div class="panel-header"><div><h3>${en ? 'Multi-Scale Comparison vs. Peer & Macro Medians' : 'So sánh đa thang đo (Multi-scale vs Trung vị ngành)'}</h3><p>${en ? 'Derived directly from Page 4 financial statements (CSTC & BCTT); each metric uses its own independent scale.' : 'Tính trực tiếp từ dữ liệu Trang 4 (CSTC & BCTT); mỗi chỉ số có trục tỷ lệ riêng.'}</p></div></div><div class="multiscale-grid">${barsHtml}</div></section>
     </div>
   </div>`;
 }
 
-function renderMultiSeriesChart(chart) {
+function renderMultiSeriesChart(chart, lang = DEFAULT_LANG) {
+  const en = lang === 'en';
   const series = chart?.series || [];
   if (!series.length) return '';
   const allPeriods = [...new Set(series.flatMap((s) => s.points.map((p) => p.period)))].sort();
   const allVals = series.flatMap((s) => s.points.map((p) => p.value)).filter((v) => Number.isFinite(v));
   if (!allVals.length) return '';
+  const chartTitle = translateChartTitle(chart, lang);
   const w = 520; const h = 165; const pad = { l: 52, r: 12, t: 12, b: 26 };
   const pw = w - pad.l - pad.r; const ph = h - pad.t - pad.b;
   let min = Math.min(...allVals); let max = Math.max(...allVals);
@@ -336,11 +392,13 @@ function renderMultiSeriesChart(chart) {
     const d = pts.map((p, i) => `${i ? 'L' : 'M'}${x(p.period).toFixed(1)},${y(p.value).toFixed(1)}`).join(' ');
     return `<path d="${d}" fill="none" stroke="${palette[idx % palette.length]}" stroke-width="2"/>`;
   }).join('');
-  const legend = series.map((s, idx) => `<span class="legend-item"><span class="legend-dot" style="background:${palette[idx % palette.length]}"></span>${esc(s.label)}</span>`).join('');
-  return `<section class="panel"><div class="panel-header"><div><h3>${esc(chart.title)}</h3><p>Tự vẽ từ dữ liệu BCTC/CSTC</p></div></div><div class="chart-box"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(chart.title)}"><line x1="${pad.l}" x2="${w - pad.r}" y1="${pad.t + ph}" y2="${pad.t + ph}" stroke="#dde5e8"/><text x="${pad.l - 6}" y="${pad.t + 8}" text-anchor="end" font-size="9" fill="#7c8b94">${esc(fmtNum(max, 1))}</text><text x="${pad.l - 6}" y="${pad.t + ph}" text-anchor="end" font-size="9" fill="#7c8b94">${esc(fmtNum(min, 1))}</text>${paths}<text x="${pad.l}" y="${h - 6}" font-size="9" fill="#7c8b94">${esc(allPeriods[0] || '')}</text><text x="${w - pad.r}" y="${h - 6}" text-anchor="end" font-size="9" fill="#7c8b94">${esc(allPeriods.at(-1) || '')}</text></svg><div class="chart-legend">${legend}</div></div></section>`;
+  const legend = series.map((s, idx) => `<span class="legend-item"><span class="legend-dot" style="background:${palette[idx % palette.length]}"></span>${esc(translateChartSeriesLabel(s, lang))}</span>`).join('');
+  return `<section class="panel"><div class="panel-header"><div><h3>${esc(chartTitle)}</h3><p>${en ? 'Plotted from quarterly CSTC / BCTT disclosures' : 'Tự vẽ từ dữ liệu BCTC/CSTC'}</p></div></div><div class="chart-box"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(chartTitle)}"><line x1="${pad.l}" x2="${w - pad.r}" y1="${pad.t + ph}" y2="${pad.t + ph}" stroke="#dde5e8"/><text x="${pad.l - 6}" y="${pad.t + 8}" text-anchor="end" font-size="9" fill="#7c8b94">${esc(fmtNum(max, 1, lang))}</text><text x="${pad.l - 6}" y="${pad.t + ph}" text-anchor="end" font-size="9" fill="#7c8b94">${esc(fmtNum(min, 1, lang))}</text>${paths}<text x="${pad.l}" y="${h - 6}" font-size="9" fill="#7c8b94">${esc(allPeriods[0] || '')}</text><text x="${w - pad.r}" y="${h - 6}" text-anchor="end" font-size="9" fill="#7c8b94">${esc(allPeriods.at(-1) || '')}</text></svg><div class="chart-legend">${legend}</div></div></section>`;
 }
 
-export function renderPage4Financials(bundle, params) {
+export function renderPage4Financials(bundle, params, lang = DEFAULT_LANG) {
+  const nl = normalizeLang(lang) || DEFAULT_LANG;
+  const en = nl === 'en';
   const fin = bundle.page4_financials || {};
   const rtype = params.get('rtype') === 'bctt' ? 'bctt' : 'cstc';
   const fquery = (params.get('fq') || '').trim().toLocaleLowerCase('vi');
@@ -350,67 +408,100 @@ export function renderPage4Financials(bundle, params) {
   const winSize = 8;
   const clampedOff = Math.min(pOffset, Math.max(0, allPeriods.length - winSize));
   const shownPeriods = allPeriods.slice(clampedOff, clampedOff + winSize);
-  const rows = (tableData.rows || []).filter((r) => !fquery || `${r.component || ''} ${r.field_name}`.toLocaleLowerCase('vi').includes(fquery));
+  const macroLabel = translateMacroGroup(fin.macro_group, fin.macro_group_label, nl);
 
-  const chartsHtml = (fin.charts || []).map(renderMultiSeriesChart).join('');
+  const rows = (tableData.rows || []).filter((r) => {
+    if (!fquery) return true;
+    const enField = translateFinancialField(r.field_name, 'en');
+    const enComp = translateFinancialComponent(r.component, 'en');
+    const hay = `${r.component || ''} ${r.field_name} ${enComp} ${enField}`.toLocaleLowerCase('vi');
+    return hay.includes(fquery);
+  });
+
+  const chartsHtml = (fin.charts || []).map((c) => renderMultiSeriesChart(c, nl)).join('');
   const headCols = shownPeriods.map((p) => `<th class="numeric">${esc(p)}</th>`).join('');
-  const bodyRows = rows.map((r) => `<tr><td><span class="table-sub">${esc(r.component || '')}</span><strong>${esc(r.field_name)}</strong></td><td>${esc(r.unit || '—')}</td>${shownPeriods.map((p) => `<td class="numeric">${esc(r.values?.[p] != null ? fmtNum(r.values[p], 2) : '—')}</td>`).join('')}</tr>`).join('');
+  const bodyRows = rows.map((r) => {
+    const dispComp = translateFinancialComponent(r.component, nl);
+    const dispField = translateFinancialField(r.field_name, nl);
+    const dispUnit = translateFinancialUnit(r.unit, nl);
+    const origTitle = en && dispField !== r.field_name ? ` title="${esc(r.field_name)}"` : '';
+    return `<tr><td${origTitle}><span class="table-sub">${esc(dispComp)}</span><strong>${esc(dispField)}</strong></td><td>${esc(dispUnit)}</td>${shownPeriods.map((p) => `<td class="numeric">${esc(r.values?.[p] != null ? fmtNum(r.values[p], 2, nl) : '—')}</td>`).join('')}</tr>`;
+  }).join('');
 
   const prevOff = Math.max(0, clampedOff - winSize);
   const nextOff = Math.min(Math.max(0, allPeriods.length - winSize), clampedOff + winSize);
   const baseHref = `?view=stocks&ticker=${encodeURIComponent(bundle.symbol)}&stab=financials`;
 
   return `<div class="yuanta-section">
-    <div class="notice"><span class="notice-icon" aria-hidden="true">i</span><div><strong>Biểu đồ &amp; Báo cáo tài chính theo nhóm ngành: ${esc(fin.macro_group_label || fin.macro_group || '—')}</strong><p>Dữ liệu quý từ Q1/2010 đến hiện tại (${fmtInt(allPeriods.length)} kỳ báo cáo). Đơn vị giá trị tiền tệ theo chuẩn nguồn (1.000.000 VND = triệu đồng trừ khi cột đơn vị ghi khác).</p></div></div>
+    <div class="notice"><span class="notice-icon" aria-hidden="true">i</span><div><strong>${en ? `Sector-Tailored Charts & Financial Statements: ${esc(macroLabel)}` : `Biểu đồ & Báo cáo tài chính theo nhóm ngành: ${esc(macroLabel)}`}</strong><p>${en ? `Quarterly disclosures from Q1/2010 to present (${fmtInt(allPeriods.length, nl)} reporting periods). Monetary line items follow source scaling (1,000,000 VND = Million VND unless the Unit column states otherwise).` : `Dữ liệu quý từ Q1/2010 đến hiện tại (${fmtInt(allPeriods.length, nl)} kỳ báo cáo). Đơn vị giá trị tiền tệ theo chuẩn nguồn (1.000.000 VND = triệu đồng trừ khi cột đơn vị ghi khác).`}</p></div></div>
     ${chartsHtml ? `<div class="detail-grid">${chartsHtml}</div>` : ''}
     <div class="tab-strip">
-      <a href="${baseHref}&rtype=cstc" data-route class="${rtype === 'cstc' ? 'active' : ''}">Chỉ số tài chính (CSTC · ${fmtInt((fin.cstc?.periods || []).length)} kỳ)</a>
-      <a href="${baseHref}&rtype=bctt" data-route class="${rtype === 'bctt' ? 'active' : ''}">Báo cáo tài chính (BCTT · ${fmtInt((fin.bctt?.periods || []).length)} kỳ)</a>
+      <a href="${esc(withLangHref(`${baseHref}&rtype=cstc`, nl))}" data-route class="${rtype === 'cstc' ? 'active' : ''}">${en ? `Financial Ratios (CSTC · ${fmtInt((fin.cstc?.periods || []).length, nl)} periods)` : `Chỉ số tài chính (CSTC · ${fmtInt((fin.cstc?.periods || []).length, nl)} kỳ)`}</a>
+      <a href="${esc(withLangHref(`${baseHref}&rtype=bctt`, nl))}" data-route class="${rtype === 'bctt' ? 'active' : ''}">${en ? `Summary Statements (BCTT · ${fmtInt((fin.bctt?.periods || []).length, nl)} periods)` : `Báo cáo tài chính (BCTT · ${fmtInt((fin.bctt?.periods || []).length, nl)} kỳ)`}</a>
     </div>
     <form class="control-bar" data-filter-form>
       <input type="hidden" name="ticker" value="${esc(bundle.symbol)}">
       <input type="hidden" name="stab" value="financials">
       <input type="hidden" name="rtype" value="${esc(rtype)}">
-      <div class="field grow"><label for="fin-fq">Tìm khoản mục</label><input id="fin-fq" name="fq" type="search" value="${esc(params.get('fq') || '')}" placeholder="VD: ROE, NIM, Doanh thu, Hàng tồn kho"></div>
-      <button class="button primary" type="submit">Lọc khoản mục</button>
-      <a class="button" href="${baseHref}&rtype=${rtype}&poff=${prevOff}" data-route>← Kỳ mới hơn</a>
-      <a class="button" href="${baseHref}&rtype=${rtype}&poff=${nextOff}" data-route>Kỳ cũ hơn (về 2010) →</a>
+      <div class="field grow"><label for="fin-fq">${en ? 'Filter line items' : 'Tìm khoản mục'}</label><input id="fin-fq" name="fq" type="search" value="${esc(params.get('fq') || '')}" placeholder="${en ? 'e.g. ROE, NIM, Revenue, Inventories' : 'VD: ROE, NIM, Doanh thu, Hàng tồn kho'}"></div>
+      <button class="button primary" type="submit">${en ? 'Filter items' : 'Lọc khoản mục'}</button>
+      <a class="button" href="${esc(withLangHref(`${baseHref}&rtype=${rtype}&poff=${prevOff}`, nl))}" data-route>${en ? '← Newer periods' : '← Kỳ mới hơn'}</a>
+      <a class="button" href="${esc(withLangHref(`${baseHref}&rtype=${rtype}&poff=${nextOff}`, nl))}" data-route>${en ? 'Older periods (back to 2010) →' : 'Kỳ cũ hơn (về 2010) →'}</a>
     </form>
-    <section class="panel"><div class="panel-header"><div><h3>${rtype === 'cstc' ? 'Toàn bộ Chỉ số tài chính (CSTC)' : 'Toàn bộ Báo cáo tài chính (BCTT)'}</h3><p>Đang hiển thị kỳ ${esc(shownPeriods[0] || '—')} → ${esc(shownPeriods.at(-1) || '—')} (${fmtInt(rows.length)} chỉ tiêu)</p></div></div>
-      <div class="table-wrap"><table><thead><tr><th>Khoản mục</th><th>Đơn vị</th>${headCols}</tr></thead><tbody>${bodyRows || `<tr><td colspan="${2 + shownPeriods.length}" class="no-results">Không có khoản mục phù hợp.</td></tr>`}</tbody></table></div>
+    <section class="panel"><div class="panel-header"><div><h3>${rtype === 'cstc' ? (en ? 'Financial Ratios Matrix (CSTC)' : 'Toàn bộ Chỉ số tài chính (CSTC)') : (en ? 'Financial Statements Matrix (BCTT)' : 'Toàn bộ Báo cáo tài chính (BCTT)')}</h3><p>${en ? `Showing periods ${esc(shownPeriods[0] || '—')} → ${esc(shownPeriods.at(-1) || '—')} (${fmtInt(rows.length, nl)} line items)` : `Đang hiển thị kỳ ${esc(shownPeriods[0] || '—')} → ${esc(shownPeriods.at(-1) || '—')} (${fmtInt(rows.length, nl)} chỉ tiêu)`}</p></div></div>
+      <div class="table-wrap"><table><thead><tr><th>${en ? 'Line Item' : 'Khoản mục'}</th><th>${en ? 'Unit' : 'Đơn vị'}</th>${headCols}</tr></thead><tbody>${bodyRows || `<tr><td colspan="${2 + shownPeriods.length}" class="no-results">${en ? 'No matching line items.' : 'Không có khoản mục phù hợp.'}</td></tr>`}</tbody></table></div>
     </section>
   </div>`;
 }
 
-function renderPage5Events(bundle, params) {
+function safeExternalUrl(value) {
+  try {
+    const url = new URL(value);
+    return ['https:', 'http:'].includes(url.protocol) ? url.href : null;
+  } catch { return null; }
+}
+
+function renderPage5Events(bundle, params, lang = DEFAULT_LANG) {
+  const en = lang === 'en';
   const ev = bundle.page5_events || {};
   const all = Array.isArray(ev.articles) ? ev.articles : [];
   const eq = (params.get('eq') || '').trim().toLocaleLowerCase('vi');
   const filtered = all.filter((a) => !eq || `${a.title || ''} ${a.category || ''} ${a.summary || ''}`.toLocaleLowerCase('vi').includes(eq));
-  const page = Math.max(1, Number(params.get('epage') || 1));
+  const rawPage = Number(params.get('epage') || 1);
+  const page = Number.isFinite(rawPage) ? Math.max(1, Math.floor(rawPage)) : 1;
   const pageSize = 20;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const cur = Math.min(page, totalPages);
   const slice = filtered.slice((cur - 1) * pageSize, cur * pageSize);
 
-  const rows = slice.map((item) => `<tr><td>${esc(item.published_date || (item.published_at || '').slice(0, 10) || '—')}</td><td>${esc(item.category || 'Sự kiện / Tin tức')}</td><td><strong>${esc(item.title || '—')}</strong>${item.summary ? `<span class="table-sub">${esc(item.summary)}</span>` : ''}</td><td>${item.url ? `<a class="small-link" href="${esc(item.url)}" target="_blank" rel="noreferrer">Mở bài ↗</a>` : '—'}</td></tr>`).join('');
+  const rows = slice.map((item) => `<tr><td>${esc(item.published_date ? formatDate(item.published_date, lang) : item.published_at ? formatDate(item.published_at, lang) : '—')}</td><td>${esc(item.category || (en ? 'Corporate Event / News' : 'Sự kiện / Tin tức'))}</td><td><strong>${esc(item.title || '—')}</strong>${item.summary ? `<span class="table-sub">${esc(item.summary)}</span>` : ''}</td><td>${safeExternalUrl(item.url) ? `<a class="small-link" href="${esc(safeExternalUrl(item.url))}" target="_blank" rel="noreferrer">${en ? 'Open ↗' : 'Mở bài ↗'}</a>` : '—'}</td></tr>`).join('');
 
   return `<div class="yuanta-section">
     <form class="control-bar" data-filter-form>
       <input type="hidden" name="ticker" value="${esc(bundle.symbol)}">
       <input type="hidden" name="stab" value="events">
-      <div class="field grow"><label for="ev-q">Tìm tin tức &amp; sự kiện</label><input id="ev-q" name="eq" type="search" value="${esc(params.get('eq') || '')}" placeholder="VD: cổ tức, ĐHĐCĐ, phát hành"></div>
-      <button class="button primary" type="submit">Tìm</button>
-      <span class="toolbar-note">${fmtInt(filtered.length)} / ${fmtInt(ev.record_count ?? all.length)} sự kiện (từ 01/01/2010)</span>
+      <div class="field grow"><label for="ev-q">${en ? 'Search news & corporate events' : 'Tìm tin tức & sự kiện'}</label><input id="ev-q" name="eq" type="search" value="${esc(params.get('eq') || '')}" placeholder="${en ? 'e.g. cổ tức / dividend, AGM, issuance' : 'VD: cổ tức, ĐHĐCĐ, phát hành'}"></div>
+      <button class="button primary" type="submit">${en ? 'Search' : 'Tìm'}</button>
+      <span class="toolbar-note">${en ? `${fmtInt(filtered.length, lang)} / ${fmtInt(ev.record_count ?? all.length, lang)} events (since 2010-01-01)` : `${fmtInt(filtered.length, lang)} / ${fmtInt(ev.record_count ?? all.length, lang)} sự kiện (từ 01/01/2010)`}</span>
     </form>
-    <section class="panel"><div class="panel-header"><div><h3>Tin tức &amp; Sự kiện doanh nghiệp (${esc(bundle.symbol)})</h3><p>Nguồn: market_data/article · Trang ${cur} / ${totalPages}</p></div></div>
-      <div class="table-wrap"><table><thead><tr><th>Ngày</th><th>Nhóm</th><th>Tiêu đề / Nội dung</th><th>Liên kết</th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="no-results">Không tìm thấy sự kiện phù hợp.</td></tr>'}</tbody></table></div>
+    <section class="panel"><div class="panel-header"><div><h3>${en ? `Corporate News & Events (${esc(bundle.symbol)})` : `Tin tức & Sự kiện doanh nghiệp (${esc(bundle.symbol)})`}</h3><p>${en ? `Source: market_data/article · Page ${cur} of ${totalPages} · Provider text may be in Vietnamese` : `Nguồn: market_data/article · Trang ${cur} / ${totalPages}`}</p></div></div>
+      <div class="table-wrap"><table><thead><tr><th>${en ? 'Date' : 'Ngày'}</th><th>${en ? 'Category' : 'Nhóm'}</th><th>${en ? 'Headline / Summary' : 'Tiêu đề / Nội dung'}</th><th>${en ? 'Link' : 'Liên kết'}</th></tr></thead><tbody>${rows || `<tr><td colspan="4" class="no-results">${en ? 'No matching events found.' : 'Không tìm thấy sự kiện phù hợp.'}</td></tr>`}</tbody></table></div>
+      ${pageLinks(params, bundle.symbol, 'events', 'epage', cur, totalPages, lang)}
     </section>
   </div>`;
 }
 
-export function renderYuantaStockTabs(symbol, stab, loadedEntry, params) {
-  const tabs = [
+export function renderYuantaStockTabs(symbol, stab, loadedEntry, params, lang = DEFAULT_LANG) {
+  const nl = normalizeLang(lang) || DEFAULT_LANG;
+  const en = nl === 'en';
+  const tabs = en ? [
+    ['funds', 'Open-End Fund Ownership'],
+    ['overview', 'Page 1: Overview'],
+    ['trading', 'Page 2: Trading & Foreign Flow'],
+    ['correlation', 'Page 3: Sector Correlation'],
+    ['financials', 'Page 4: Financial Statements'],
+    ['events', 'Page 5: News & Corporate Events'],
+  ] : [
     ['funds', 'Sở hữu quỹ mở'],
     ['overview', 'Trang 1: Tổng quan'],
     ['trading', 'Trang 2: Giao dịch'],
@@ -418,22 +509,31 @@ export function renderYuantaStockTabs(symbol, stab, loadedEntry, params) {
     ['financials', 'Trang 4: Báo cáo tài chính'],
     ['events', 'Trang 5: Tin tức & sự kiện'],
   ];
-  const nav = `<div class="tab-strip yuanta-tabs">${tabs.map(([id, label]) => `<a href="?view=stocks&ticker=${encodeURIComponent(symbol)}&stab=${id}" data-route class="${stab === id ? 'active' : ''}" ${stab === id ? 'aria-current="page"' : ''}>${esc(label)}</a>`).join('')}</div>`;
+  const nav = `<div class="tab-strip yuanta-tabs">${tabs.map(([id, label]) => {
+    const href = withLangHref(`?view=stocks&ticker=${encodeURIComponent(symbol)}&stab=${id}`, nl);
+    return `<a href="${esc(href)}" data-route class="${stab === id ? 'active' : ''}" ${stab === id ? 'aria-current="page"' : ''}>${esc(label)}</a>`;
+  }).join('')}</div>`;
   if (stab === 'funds') return { nav, body: null };
   if (!loadedEntry || loadedEntry.status === 'loading') {
-    return { nav, body: `<div class="loading-panel"><span class="loading-mark" aria-hidden="true">${esc(symbol.slice(0, 3))}</span><p>Đang tải gói dữ liệu tĩnh ${esc(symbol)}…</p></div>` };
+    return { nav, body: `<div class="loading-panel"><span class="loading-mark" aria-hidden="true">${esc(symbol.slice(0, 3))}</span><p>${en ? `Loading static bundle for ${esc(symbol)}…` : `Đang tải gói dữ liệu tĩnh ${esc(symbol)}…`}</p></div>` };
   }
   if (loadedEntry.status !== 'available' || !loadedEntry.bundle) {
-    return { nav, body: renderNotSyncedNotice(symbol) };
+    if (loadedEntry.status === 'not_synced') return { nav, body: renderNotSyncedNotice(symbol, nl) };
+    const detail = loadedEntry.status === 'invalid_symbol'
+      ? (en ? 'Ticker must contain 2–5 letters or digits.' : 'Mã phải gồm 2–5 chữ cái hoặc chữ số.')
+      : loadedEntry.status === 'malformed'
+        ? (en ? 'The static bundle is malformed or does not match this ticker.' : 'Gói dữ liệu tĩnh sai định dạng hoặc không khớp mã.')
+        : (en ? 'The static bundle could not be loaded. Check the export and network; its absence is not established.' : 'Không tải được gói dữ liệu tĩnh. Kiểm tra export và kết nối; chưa thể kết luận là thiếu.') ;
+    return { nav, body: `<div class="notice warning" role="status"><span class="notice-icon" aria-hidden="true">i</span><div><strong>${en ? 'Yuanta data unavailable' : 'Dữ liệu Yuanta không khả dụng'}</strong><p>${esc(detail)}</p></div></div>` };
   }
   const bundle = loadedEntry.bundle;
   let body;
   switch (stab) {
-    case 'trading': body = renderPage2Trading(bundle, params); break;
-    case 'correlation': body = renderPage3Correlation(bundle); break;
-    case 'financials': body = renderPage4Financials(bundle, params); break;
-    case 'events': body = renderPage5Events(bundle, params); break;
-    default: body = renderPage1Overview(bundle);
+    case 'trading': body = renderPage2Trading(bundle, params, nl); break;
+    case 'correlation': body = renderPage3Correlation(bundle, nl); break;
+    case 'financials': body = renderPage4Financials(bundle, params, nl); break;
+    case 'events': body = renderPage5Events(bundle, params, nl); break;
+    default: body = renderPage1Overview(bundle, nl);
   }
   return { nav, body };
 }

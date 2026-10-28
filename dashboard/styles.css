@@ -458,6 +458,38 @@ td.numeric, th.numeric { text-align: right; font-variant-numeric: tabular-nums; 
 .unavailable-item strong { color: var(--ink); }
 .unavailable-item span { color: var(--muted); text-align: right; }
 
+.lang-switch {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px;
+  background: #f6f9fa;
+  gap: 2px;
+}
+.lang-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 4px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  line-height: 1;
+}
+.lang-btn[aria-pressed="true"] {
+  background: var(--teal);
+  color: #fff;
+}
+.lang-btn:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 1px;
+}
+
 .yuanta-tabs { flex-wrap: wrap; margin: 10px 0 16px; }
 .yuanta-section { display: grid; gap: 15px; margin-top: 8px; }
 .yuanta-bio { margin: 0 0 12px; color: var(--muted); font-size: 11px; line-height: 1.65; }
