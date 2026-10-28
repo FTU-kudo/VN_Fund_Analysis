@@ -34,6 +34,7 @@ tickers = ["FPT", "HPG", "MBB"]
 
 [report]
 top_n = 10
+lang = "vi"
 
 [http]
 delay_seconds = 1.0

@@ -53,7 +53,11 @@ def _flow_table(df: pd.DataFrame) -> list[str]:
     return lines
 
 
-def render_report(date: str, changes: pd.DataFrame, info: dict, cfg: dict) -> str:
+def render_report(date: str, changes: pd.DataFrame, info: dict, cfg: dict, lang: str = "vi") -> str:
+    if lang == "en":
+        return _report_en(date, changes, info, cfg)
+    if lang != "vi":
+        raise ValueError("lang must be vi or en")
     wl = cfg["watchlist"]["tickers"]
     s = summarize(changes, wl, cfg["report"]["top_n"])
     L = [f"# Thay đổi danh mục quỹ mở — {date}", ""]
@@ -114,7 +118,11 @@ def render_report(date: str, changes: pd.DataFrame, info: dict, cfg: dict) -> st
     return "\n".join(L) + "\n"
 
 
-def render_text(date: str, changes: pd.DataFrame, info: dict, cfg: dict) -> str:
+def render_text(date: str, changes: pd.DataFrame, info: dict, cfg: dict, lang: str = "vi") -> str:
+    if lang == "en":
+        return _text_en(date, changes, info, cfg)
+    if lang != "vi":
+        raise ValueError("lang must be vi or en")
     s = summarize(changes, cfg["watchlist"]["tickers"], 5)
     t = [f"Quỹ mở {date}: {info['n_changed']} quỹ có kỳ công bố mới ({info['n_ok']}/{info['n_total']} quỹ OK)"]
     if changes.empty:
@@ -126,3 +134,95 @@ def render_text(date: str, changes: pd.DataFrame, info: dict, cfg: dict) -> str:
     for r in s["watch"].sort_values(["ticker", "fund"]).itertuples():
         t.append(f"* {r.ticker} {r.fund}: {LABEL.get(r.action, r.action)} {_pct(r.w_prev)}→{_pct(r.w_new)}")
     return "\n".join(t)
+
+LABEL_EN = {
+    "BUY": "Position increase (inferred)", "SELL": "Position decrease (inferred)",
+    "NEW_IN_TOP10": "Entered Top-N (censored)", "EXIT_TOP10": "Exited Top-N (not proof of full exit)",
+    "CORP_ACTION?": "Possible corporate action (unverified)", "PRORATA": "Pro-rata change (heuristic)",
+    "UNCONFIRMED?": "Volume change (unconfirmed)", "WEIGHT_CHANGE?": "Weight change (unconfirmed)",
+}
+CAVEAT_EN = [
+    "Fmarket discloses only Top-N holdings. Entering or leaving Top-N is not proof of a new position or full exit.",
+    "Position increases and decreases are inferred from volumes using the median common-holding fund-scale proxy; they are not confirmed trades or order data.",
+    "Fewer than four common holdings with valid volumes cannot reliably separate position changes from fund flows; changes are unconfirmed and excluded from net flow.",
+    "Weight-only changes may reflect prices, flows or corporate actions and do not establish trades.",
+    "Possible corporate actions are heuristics, not independently verified official events.",
+    "Estimated values use reporting-period prices, not trade execution prices. Effective, published, observed and ingested times are distinct; unknown publication times remain unknown. Approximate mirror dates are not PIT-safe.",
+]
+
+
+def _report_en(date: str, changes: pd.DataFrame, info: dict, cfg: dict) -> str:
+    watchlist = cfg["watchlist"]["tickers"]
+    summary = summarize(changes, watchlist, cfg["report"]["top_n"])
+    lines = [f"# Open-end fund portfolio changes — {date}", "",
+             f"- Funds processed: **{info['n_ok']}/{info['n_total']}** (failed: {info['n_failed']}; partial: {info.get('n_partial', 0)})",
+             f"- Funds with a new reporting period: **{info['n_changed']}** | First baseline: {info['n_baseline']}"]
+    for field, label in (("n_empty_holdings", "Funds returning empty holdings (not proof of no holdings)"),
+                         ("n_nav_invalid", "Invalid NAV values rejected"),
+                         ("n_nav_history_failed", "NAV history fetch failures"),
+                         ("n_quality_reports", "Validation reports"), ("n_quality_errors", "Validation errors"),
+                         ("n_quality_warnings", "Validation warnings"), ("n_quality_rejected", "Rejected datasets"),
+                         ("n_provenance_observations", "Provenance observations appended"),
+                         ("n_source_events", "Source request events appended")):
+        if info.get(field) is not None:
+            lines.append(f"- {label}: **{info[field]}**")
+    if info.get("n_provenance_write_failed") or info.get("n_source_event_write_failed"):
+        lines.append("- **Operational error:** provenance/quality/source-event sidecars were not fully written.")
+    if info.get("empty_tables"):
+        items = ", ".join(f"{name}: {count}" for name, count in sorted(info["empty_tables"].items()))
+        lines.append(f"- Additional tables returned empty ({items}); old snapshots are retained and must not be treated as current or as zero.")
+    if info.get("failed"):
+        lines.append(f"- Failed funds: {', '.join(info['failed'])}")
+    lines.append("")
+    if changes.empty:
+        lines.extend(["No changes exceeded the threshold in this run.", ""])
+    else:
+        for key, title in (("top_buy", "Largest estimated net position increases"),
+                           ("top_sell", "Largest estimated net position decreases"),
+                           ("unconfirmed", "Unconfirmed changes / missing estimated value")):
+            frame = summary[key]
+            if frame.empty:
+                continue
+            lines.extend([f"## {title}", "", "| Ticker | Increases* | Decreases* | Unconfirmed | Entered Top-N | Exited Top-N | Estimated net (billion VND) |",
+                          "|---|---:|---:|---:|---:|---:|---:|"])
+            for r in frame.itertuples():
+                value = "—" if pd.isna(r.net_value_bn) else f"{r.net_value_bn:+.1f}"
+                lines.append(f"| {r.ticker} | {r.n_buy} | {r.n_sell} | {r.n_unconfirmed} | {r.n_new} | {r.n_exit} | {value} |")
+            lines.append("")
+        lines.extend([f"## Watchlist ({', '.join(watchlist)})", ""])
+        if summary["watch"].empty:
+            lines.append("No recorded changes for these tickers.")
+        for r in summary["watch"].sort_values(["ticker", "fund"]).itertuples():
+            line = f"- **{r.ticker}** | {r.fund} ({r.mgmt_co}): {LABEL_EN.get(r.action, r.action)} | weight {_pct(r.w_prev)} → {_pct(r.w_new)}"
+            if pd.notna(r.vol_pct):
+                line += f" | volume {_vol(r.vol_pct)}"
+            if pd.notna(r.est_value_vnd):
+                line += f" | ~{_bn(r.est_value_vnd)} billion VND (estimated)"
+            if pd.notna(r.flag) and r.flag:
+                line += f" | flag: `{r.flag}`"
+            lines.append(line)
+        lines.extend(["", "## Details by fund", ""])
+        for (fund, co), group in changes.groupby(["fund", "mgmt_co"], dropna=False):
+            lines.extend([f"### {fund} ({co})", "", "| Ticker | Classification | Flag / basis | Weight | Volume change | Estimated value (billion VND) |", "|---|---|---|---|---|---|"])
+            for r in group.assign(_k=group.est_value_vnd.abs().fillna(-1)).sort_values("_k", ascending=False).itertuples():
+                basis = " / ".join(str(x) for x in (r.basis, r.flag) if pd.notna(x) and x)
+                value = _bn(r.est_value_vnd) if pd.notna(r.est_value_vnd) else "—"
+                lines.append(f"| {r.ticker} | {LABEL_EN.get(r.action, r.action)} | {basis} | {_pct(r.w_prev)} → {_pct(r.w_new)} | {_vol(r.vol_pct)} | {value} |")
+            lines.append("")
+    lines.extend(["## Qualifications", ""] + [f"- {c}" for c in CAVEAT_EN])
+    return "\n".join(lines) + "\n"
+
+
+def _text_en(date: str, changes: pd.DataFrame, info: dict, cfg: dict) -> str:
+    summary = summarize(changes, cfg["watchlist"]["tickers"], 5)
+    lines = [f"Open-end funds {date}: {info['n_changed']} with new reporting periods ({info['n_ok']}/{info['n_total']} processed)."]
+    if changes.empty:
+        lines.append("No changes exceeded the threshold.")
+    else:
+        for key, label in (("top_buy", "Estimated position increases"), ("top_sell", "Estimated position decreases")):
+            if not summary[key].empty:
+                lines.append(label + ": " + ", ".join(f"{r.ticker} {r.net_value_bn:+.1f} billion VND" for r in summary[key].itertuples()))
+        for r in summary["watch"].sort_values(["ticker", "fund"]).itertuples():
+            lines.append(f"* {r.ticker} {r.fund}: {LABEL_EN.get(r.action, r.action)} {_pct(r.w_prev)}→{_pct(r.w_new)}")
+    lines.append("Inferred, not confirmed trades; Top-N disclosure is censored. Not investment advice.")
+    return "\n".join(lines)

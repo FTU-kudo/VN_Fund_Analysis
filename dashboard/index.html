@@ -4,35 +4,35 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <meta name="description" content="Bảng điều khiển nghiên cứu quỹ Việt Nam — minh bạch nguồn, thời điểm và giới hạn dữ liệu.">
+  <meta name="description" content="Bảng điều khiển nghiên cứu quỹ và cổ phiếu Việt Nam — minh bạch nguồn, thời điểm và giới hạn dữ liệu.">
   <title>VN Fund Research — Dashboard</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-  <a class="skip-link" href="#main-content">Bỏ qua điều hướng</a>
+  <a class="skip-link" href="#main-content" data-i18n="skip_link">Bỏ qua điều hướng</a>
   <div class="app-shell">
-    <aside class="sidebar" aria-label="Điều hướng chính">
-      <a class="brand" href="./?view=overview" data-route aria-label="VN Fund Research, trang tổng quan">
+    <aside class="sidebar" aria-label="Điều hướng chính" data-i18n-aria="sidebar_aria">
+      <a class="brand" href="./?view=overview" data-route aria-label="VN Fund Research, trang tổng quan" data-i18n-aria="brand_aria">
         <span class="brand-mark" aria-hidden="true">VN</span>
         <span class="brand-copy"><strong>Fund Research</strong><small>RESEARCH WORKSPACE</small></span>
       </a>
-      <div class="sidebar-label">KHÁM PHÁ</div>
+      <div class="sidebar-label" data-i18n="sidebar_explore">KHÁM PHÁ</div>
       <nav class="primary-nav">
-        <a href="?view=overview" data-route data-view="overview"><span class="nav-glyph" aria-hidden="true">◫</span>Tổng quan</a>
-        <a href="?view=funds" data-route data-view="funds"><span class="nav-glyph" aria-hidden="true">▤</span>Quỹ đầu tư</a>
-        <a href="?view=holdings" data-route data-view="holdings"><span class="nav-glyph" aria-hidden="true">⇄</span>Danh mục &amp; thay đổi</a>
-        <a href="?view=stocks" data-route data-view="stocks"><span class="nav-glyph" aria-hidden="true">⌕</span>Nghiên cứu mã</a>
-        <a href="?view=compare" data-route data-view="compare"><span class="nav-glyph" aria-hidden="true">▥</span>So sánh quỹ</a>
+        <a href="?view=overview" data-route data-view="overview"><span class="nav-glyph" aria-hidden="true">◫</span><span data-i18n="nav_overview">Tổng quan</span></a>
+        <a href="?view=funds" data-route data-view="funds"><span class="nav-glyph" aria-hidden="true">▤</span><span data-i18n="nav_funds">Quỹ đầu tư</span></a>
+        <a href="?view=holdings" data-route data-view="holdings"><span class="nav-glyph" aria-hidden="true">⇄</span><span data-i18n="nav_holdings">Danh mục &amp; thay đổi</span></a>
+        <a href="?view=stocks" data-route data-view="stocks"><span class="nav-glyph" aria-hidden="true">⌕</span><span data-i18n="nav_stocks">Nghiên cứu mã</span></a>
+        <a href="?view=compare" data-route data-view="compare"><span class="nav-glyph" aria-hidden="true">▥</span><span data-i18n="nav_compare">So sánh quỹ</span></a>
       </nav>
-      <div class="sidebar-label sidebar-label-spaced">HỆ THỐNG</div>
+      <div class="sidebar-label sidebar-label-spaced" data-i18n="sidebar_system">HỆ THỐNG</div>
       <nav class="primary-nav">
-        <a href="?view=quality" data-route data-view="quality"><span class="nav-glyph" aria-hidden="true">◎</span>Chất lượng dữ liệu</a>
-        <a href="?view=pipeline" data-route data-view="pipeline"><span class="nav-glyph" aria-hidden="true">⌁</span>Sức khỏe pipeline</a>
-        <a href="?view=methodology" data-route data-view="methodology"><span class="nav-glyph" aria-hidden="true">ⓘ</span>Phương pháp</a>
+        <a href="?view=quality" data-route data-view="quality"><span class="nav-glyph" aria-hidden="true">◎</span><span data-i18n="nav_quality">Chất lượng dữ liệu</span></a>
+        <a href="?view=pipeline" data-route data-view="pipeline"><span class="nav-glyph" aria-hidden="true">⌁</span><span data-i18n="nav_pipeline">Sức khỏe pipeline</span></a>
+        <a href="?view=methodology" data-route data-view="methodology"><span class="nav-glyph" aria-hidden="true">ⓘ</span><span data-i18n="nav_methodology">Phương pháp</span></a>
       </nav>
       <div class="sidebar-bottom">
-        <div class="privacy-note"><span class="note-icon" aria-hidden="true">i</span><p>Dữ liệu là quan sát và suy luận nghiên cứu — không phải khuyến nghị đầu tư.</p></div>
-        <a class="github-link" href="https://github.com/FTU-kudo/VN_Fund_Analysis" target="_blank" rel="noreferrer">Mã nguồn dự án <span aria-hidden="true">↗</span></a>
+        <div class="privacy-note"><span class="note-icon" aria-hidden="true">i</span><p data-i18n="privacy_note">Dữ liệu là quan sát và suy luận nghiên cứu — không phải khuyến nghị đầu tư.</p></div>
+        <a class="github-link" href="https://github.com/FTU-kudo/VN_Fund_Analysis" target="_blank" rel="noreferrer"><span data-i18n="github_link">Mã nguồn dự án</span> <span aria-hidden="true">↗</span></a>
       </div>
     </aside>
 
@@ -43,18 +43,22 @@
           <h1 id="page-title">Tổng quan</h1>
         </div>
         <div class="topbar-actions">
-          <span class="static-badge"><span class="status-dot" aria-hidden="true"></span>Dữ liệu tĩnh · không gọi nguồn live</span>
-          <button class="icon-button" type="button" data-action="reload" aria-label="Tải lại dữ liệu dashboard" title="Tải lại dữ liệu">↻</button>
+          <span class="static-badge"><span class="status-dot" aria-hidden="true"></span><span data-i18n="static_badge">Dữ liệu tĩnh · không gọi nguồn live</span></span>
+          <div class="lang-switch" role="group" aria-label="Chọn ngôn ngữ hiển thị" data-i18n-aria="lang_group_aria">
+            <button type="button" class="lang-btn" data-lang-switch="vi" aria-pressed="true" title="Tiếng Việt">VI</button>
+            <button type="button" class="lang-btn" data-lang-switch="en" aria-pressed="false" title="English">EN</button>
+          </div>
+          <button class="icon-button" type="button" data-action="reload" aria-label="Tải lại dữ liệu dashboard" title="Tải lại dữ liệu" data-i18n-aria="reload_aria" data-i18n-title="reload_title">↻</button>
         </div>
       </header>
 
       <div id="load-alert" class="load-alert" role="status" hidden></div>
       <div id="app" aria-live="polite" aria-busy="true">
-        <div class="loading-panel"><span class="loading-mark" aria-hidden="true">VN</span><p>Đang tải dữ liệu nghiên cứu…</p></div>
+        <div class="loading-panel"><span class="loading-mark" aria-hidden="true">VN</span><p data-i18n="loading_data">Đang tải dữ liệu nghiên cứu…</p></div>
       </div>
 
       <footer class="site-footer">
-        <span>VN_Fund_Analysis · Research dashboard</span>
+        <span data-i18n="footer_brand">VN_Fund_Analysis · Bảng điều khiển nghiên cứu</span>
         <span id="footer-generated">Thời điểm tạo dữ liệu: chưa xác định</span>
       </footer>
     </main>

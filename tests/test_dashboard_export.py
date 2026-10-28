@@ -410,13 +410,47 @@ def test_export_sanitized_workflow_status_and_sla_stale_issue(tmp_path):
 
     export_dashboard(data, output, generated_at=GENERATED_AT, reference_date=REFERENCE_DATE)
     pipeline = read_json(output / "pipeline_status.json")["summary"]
-    assert pipeline["overall_workflow_status"] == "failure"
-    assert pipeline["last_known_status"] == "failure"
+    assert pipeline["overall_workflow_status"] == "unknown_not_exported"
+    assert pipeline["last_known_status"] == "unavailable_or_unverified"
+    assert pipeline["workflow_status_record"]["status_scope"] == "collector_budget"
     assert pipeline["workflow_status_record"]["collector_exit_code"] == 1
     assert pipeline["workflow_status_record"]["budget_status"] == "ok"
+
+    # Only a completed, independently reported GitHub event may establish the final outcome.
+    wf.write_workflow_status(data / "workflow_status.json", conclusion="failure", trigger="schedule",
+        recorded_at="2026-10-27T06:40:00Z", status_scope="final_workflow", status_source="github_event",
+        status_updated_at="2026-10-27T06:39:00Z")
+    export_dashboard(data, output, generated_at=GENERATED_AT, reference_date=REFERENCE_DATE)
+    verified = read_json(output / "pipeline_status.json")["summary"]
+    assert verified["overall_workflow_status"] == "failure"
+    assert verified["workflow_status_record"]["status_updated_at"] == "2026-10-27T06:39:00Z"
+    assert "historical" in verified["status_explanation_en"]
+
+    # Legacy and self-reported 'final' records without independently reported time remain unverified.
+    wf.write_workflow_status(data / "workflow_status.json", conclusion="success", status_scope="final_workflow", status_source="workflow_step")
+    export_dashboard(data, output, generated_at=GENERATED_AT, reference_date=REFERENCE_DATE)
+    assert read_json(output / "pipeline_status.json")["summary"]["overall_workflow_status"] == "unknown_not_exported"
 
     quality = read_json(output / "data_quality_summary.json")["summary"]
     alloc_summary = next(d for d in quality["datasets"] if d["dataset"] == "allocation")
     assert alloc_summary["freshness_assessment"] == "stale"
     assert alloc_summary["sla_days"] == 45
     assert any(issue["issue_id"] == "stale:allocation" for issue in quality["issues"])
+
+
+def test_bilingual_export_is_additive_and_preserves_original_event_hash(tmp_path):
+    from vnfa.dashboard_export import _safe_record_hash
+    data, output = tmp_path / 'data', tmp_path / 'public'
+    write_frame(data / 'changes.csv', [{'observed_date': '2026-10-27', 'fund': 'F1',
+        'ticker': 'AAA', 'action': 'BUY', 'basis': 'volume'}], CHANGE_COLUMNS)
+    export_dashboard(data, output, generated_at=GENERATED_AT, reference_date=REFERENCE_DATE)
+    event = read_json(output / 'portfolio_events.json')['records'][0]
+    old_fields = {k: v for k, v in event.items() if k not in {'event_id', 'display_label_vi', 'display_label_en'}}
+    assert event['event_id'] == _safe_record_hash(old_fields)
+    assert 'inferred' in event['display_label_en']
+    summary = read_json(output / 'data_quality_summary.json')['summary']
+    assert summary['issues']
+    assert all(all(issue.get(key) for key in ('message_vi', 'message_en', 'remediation_vi', 'remediation_en')) for issue in summary['issues'])
+    assert summary['freshness_policy_en'] and summary['freshness_policy_vi']
+    pipeline = read_json(output / 'pipeline_status.json')['summary']
+    assert pipeline['status_explanation_en'] and pipeline['status_explanation_vi']

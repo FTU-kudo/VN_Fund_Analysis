@@ -30,6 +30,9 @@ def write_workflow_status(
     collector_exit_code: int | None = None,
     budget_status: str = "unknown",
     recorded_at: str | None = None,
+    status_scope: str = "collector_budget",
+    status_source: str = "workflow_step",
+    status_updated_at: str | None = None,
 ) -> dict:
     clean_conclusion = conclusion.strip().lower() if conclusion else "unknown"
     if clean_conclusion not in ALLOWED_CONCLUSIONS:
@@ -46,6 +49,9 @@ def write_workflow_status(
         "workflow": "daily" if workflow not in {"daily", "pages"} else workflow,
         "conclusion": clean_conclusion,
         "recorded_at": ts,
+        "status_scope": status_scope if status_scope in {"collector_budget", "final_workflow"} else "unknown",
+        "status_source": status_source if status_source in {"workflow_step", "github_event", "github_actions_api"} else "unknown",
+        "status_updated_at": status_updated_at,
         "trigger": clean_trigger,
         "collector_exit_code": int(collector_exit_code) if collector_exit_code is not None else None,
         "budget_status": clean_budget,
@@ -70,6 +76,9 @@ def main() -> int:
     ap.add_argument("--collector-exit-code", type=int, default=None)
     ap.add_argument("--budget-status", default="unknown")
     ap.add_argument("--recorded-at", default=None)
+    ap.add_argument("--status-scope", choices=("collector_budget", "final_workflow"), default="collector_budget")
+    ap.add_argument("--status-source", choices=("workflow_step", "github_event", "github_actions_api"), default="workflow_step")
+    ap.add_argument("--status-updated-at", default=None)
     a = ap.parse_args()
     write_workflow_status(
         a.out,
@@ -79,6 +88,9 @@ def main() -> int:
         collector_exit_code=a.collector_exit_code,
         budget_status=a.budget_status,
         recorded_at=a.recorded_at,
+        status_scope=a.status_scope,
+        status_source=a.status_source,
+        status_updated_at=a.status_updated_at,
     )
     return 0
 

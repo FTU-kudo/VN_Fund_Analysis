@@ -21,10 +21,11 @@ def main() -> int:
     ap.add_argument("--json-out", default=str(ROOT / "reports" / "data_inventory.json"))
     ap.add_argument("--markdown-out", default=str(ROOT / "reports" / "data_inventory.md"))
     ap.add_argument("--stdout-only", action="store_true", help="print Markdown only; write no files")
+    ap.add_argument("--lang", choices=("vi", "en"), default="en")
     a = ap.parse_args()
 
     inventory = build_data_inventory(a.data_dir, reference_date=a.reference_date)
-    markdown = render_inventory_markdown(inventory)
+    markdown = render_inventory_markdown(inventory, lang=a.lang)
     print(markdown)
     if not a.stdout_only:
         json_path, markdown_path = Path(a.json_out), Path(a.markdown_out)

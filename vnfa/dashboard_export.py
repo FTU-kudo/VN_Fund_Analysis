@@ -521,18 +521,58 @@ def _holdings_records(root: Path, inventory: dict[str, Any], provenance: list[di
     return output, sorted(set(all_paths)), status, "unsafe_path" in statuses
 
 
-def _map_event(action: str | None) -> tuple[str, str, bool]:
+def _map_event(action: str | None) -> tuple[str, str, str, bool]:
     mapping = {
-        "BUY": ("position_increase_inferred", "Tăng vị thế (suy luận; chưa xác nhận giao dịch)", False),
-        "SELL": ("position_decrease_inferred", "Giảm vị thế (suy luận; chưa xác nhận giao dịch)", False),
-        "PRORATA": ("pro_rata_change", "Biến động đồng loạt (heuristic; không phải giao dịch)", False),
-        "UNCONFIRMED?": ("unconfirmed_volume_change", "Thay đổi khối lượng (chưa xác nhận)", False),
-        "WEIGHT_CHANGE?": ("unconfirmed_weight_change", "Thay đổi tỷ trọng (chưa xác nhận)", False),
-        "NEW_IN_TOP10": ("entered_top_n", "Xuất hiện trong top-N; danh mục bị kiểm duyệt", True),
-        "EXIT_TOP10": ("left_top_n", "Rời top-N; không đồng nghĩa bán hết", True),
-        "CORP_ACTION?": ("possible_corporate_action", "Nghi vấn sự kiện doanh nghiệp; chưa xác minh", False),
+        "BUY": (
+            "position_increase_inferred",
+            "Tăng vị thế (suy luận; chưa xác nhận giao dịch)",
+            "Position increase (inferred; not a confirmed trade)",
+            False,
+        ),
+        "SELL": (
+            "position_decrease_inferred",
+            "Giảm vị thế (suy luận; chưa xác nhận giao dịch)",
+            "Position decrease (inferred; not a confirmed trade)",
+            False,
+        ),
+        "PRORATA": (
+            "pro_rata_change",
+            "Biến động đồng loạt (heuristic; không phải giao dịch)",
+            "Pro-rata movement (heuristic; not a trade)",
+            False,
+        ),
+        "UNCONFIRMED?": (
+            "unconfirmed_volume_change",
+            "Thay đổi khối lượng (chưa xác nhận)",
+            "Volume change (unconfirmed)",
+            False,
+        ),
+        "WEIGHT_CHANGE?": (
+            "unconfirmed_weight_change",
+            "Thay đổi tỷ trọng (chưa xác nhận)",
+            "Weight change (unconfirmed)",
+            False,
+        ),
+        "NEW_IN_TOP10": (
+            "entered_top_n",
+            "Xuất hiện trong top-N; danh mục bị kiểm duyệt",
+            "Entered Top-N (censored portfolio)",
+            True,
+        ),
+        "EXIT_TOP10": (
+            "left_top_n",
+            "Rời top-N; không đồng nghĩa bán hết",
+            "Exited Top-N (not proof of full exit)",
+            True,
+        ),
+        "CORP_ACTION?": (
+            "possible_corporate_action",
+            "Nghi vấn sự kiện doanh nghiệp; chưa xác minh",
+            "Possible corporate action (unverified)",
+            False,
+        ),
     }
-    return mapping.get(action or "", ("unclassified", "Sự kiện chưa phân loại", False))
+    return mapping.get(action or "", ("unclassified", "Sự kiện chưa phân loại", "Unclassified event", False))
 
 
 def _events(root: Path, inventory: dict[str, Any], provenance: list[dict[str, Any]], *,
@@ -565,7 +605,7 @@ def _events(root: Path, inventory: dict[str, Any], provenance: list[dict[str, An
         action_raw = _text(row.get("action"))
         allowed_actions = {"BUY", "SELL", "PRORATA", "UNCONFIRMED?", "WEIGHT_CHANGE?", "NEW_IN_TOP10", "EXIT_TOP10", "CORP_ACTION?"}
         action = action_raw if action_raw in allowed_actions else None
-        category, label, censored_default = _map_event(action)
+        category, label, label_en, censored_default = _map_event(action)
         raw_basis = _text(row.get("basis"))
         basis = raw_basis if raw_basis in {"volume", "weight", "rank"} else None
         date_text = _date(row.get("observed_date"))
@@ -620,6 +660,8 @@ def _events(root: Path, inventory: dict[str, Any], provenance: list[dict[str, An
             event["observed_at"] = None
             event["published_at"] = None
         event["event_id"] = _safe_record_hash(event)
+        event["display_label_vi"] = label
+        event["display_label_en"] = label_en
         records.append(event)
     records.sort(key=lambda r: (r["observed_date"] or "", r["fund"] or "", r["ticker"] or "", r["event_id"]))
     status = "available" if records else "empty"
@@ -747,18 +789,91 @@ def _safe_last_run(root: Path, path: Path) -> tuple[dict[str, Any] | None, str]:
                     "n_source_events")
     if "date" not in source or not any(field in source for field in count_fields):
         return None, "schema_mismatch"
-    summary = {"date": _date(source.get("date")), "overall_status": "unknown_not_recorded",
-               "status_note": "A collector summary is not proof that the enclosing GitHub Actions job succeeded."}
+    summary = {
+        "date": _date(source.get("date")),
+        "overall_status": "unknown_not_recorded",
+        "status_note": "A collector summary is not proof that the enclosing GitHub Actions job succeeded.",
+        "status_note_vi": "Bản tóm tắt collector không tự chứng minh toàn bộ GitHub Actions job bao ngoài đã hoàn tất thành công.",
+        "status_note_en": "A collector summary is not proof that the enclosing GitHub Actions job succeeded.",
+    }
     for field in count_fields:
         summary[field] = _number(source.get(field))
     return summary, "available"
 
 
-def _make_issue(issue_id: str, severity: str, dataset: str, message: str, count: int | None,
-                detected_at: str, remediation: str) -> dict[str, Any]:
-    return {"issue_id": issue_id, "severity": severity, "dataset": dataset,
-            "message": message, "affected_records": count, "detected_at": detected_at,
-            "remediation": remediation}
+def _localize_quality_finding(code: str, en_message: str) -> tuple[str, str]:
+    exact_vi: dict[str, str] = {
+        "dataset_missing": "Dataset không tồn tại tại thời điểm kiểm tra chất lượng.",
+        "invalid_container": "Dữ liệu đầu vào không phải là bảng DataFrame hợp lệ.",
+        "empty_dataset": "Không có quan sát nào được trả về.",
+        "missing_fund_id": "Mã quỹ (fund code) bị trống hoặc thiếu.",
+        "duplicate_fund_id": "Mã quỹ bị trùng lặp trong danh mục quỹ.",
+        "missing_mgmt_co": "Thiếu thông tin công ty quản lý quỹ.",
+        "missing_asset_code": "Thiếu mã loại tài sản quỹ (asset_code).",
+        "missing_ticker": "Mã chứng khoán/tài sản trong danh mục nắm giữ bị thiếu.",
+        "duplicate_ticker": "Mã chứng khoán bị trùng trong cùng một snapshot danh mục.",
+        "invalid_weight": "Tỷ trọng danh mục không phải giá trị số hợp lệ.",
+        "negative_weight": "Tỷ trọng danh mục mang giá trị âm.",
+        "unusual_weight": "Tỷ trọng danh mục vượt 102%; cần kiểm tra đơn vị, đòn bẩy và nguồn.",
+        "invalid_update_date": "Trường update_date của nguồn không đúng định dạng ngày.",
+        "missing_update_date": "Thiếu trường update_date của nguồn.",
+        "censored_top_n": "Snapshot danh mục chỉ phản ánh Top-N khoản mục lớn nhất; các vị thế ngoài Top-N bị che khuất (censored).",
+        "invalid_nav_date": "Ngày NAV không đúng định dạng ngày hợp lệ.",
+        "invalid_nav": "Giá trị NAV không phải số hợp lệ.",
+        "nonpositive_nav": "Giá trị NAV bằng 0 hoặc âm.",
+        "duplicate_nav_key": "Trùng khóa (quỹ, ngày) trong lịch sử NAV.",
+        "effective_date_unknown": "Chuỗi snapshot NAV chỉ ghi ngày quan sát của collector; ngày hiệu lực NAV chưa được nguồn xác nhận.",
+        "missing_allocation_pct": "Thiếu tỷ lệ phân bổ tài sản (pct).",
+        "invalid_allocation_pct": "Tỷ lệ phân bổ tài sản không phải số hợp lệ.",
+        "negative_allocation_pct": "Tỷ lệ phân bổ tài sản mang giá trị âm.",
+        "unusual_allocation_pct": "Tỷ lệ phân bổ tài sản vượt 102%; cần kiểm tra đơn vị nguồn.",
+        "missing_report_date": "Thiếu ngày báo cáo phân bổ tài sản (report_date).",
+        "invalid_report_date": "Trường report_date của phân bổ tài sản không đúng định dạng ngày.",
+    }
+    if code in exact_vi:
+        return exact_vi[code], en_message
+    if code == "schema_missing_columns":
+        suffix = en_message.partition(":")[2].strip()
+        return (f"Thiếu cột bắt buộc: {suffix}" if suffix else "Thiếu cột bắt buộc trong schema."), en_message
+    if code == "schema_missing_optional":
+        suffix = en_message.partition(":")[2].strip()
+        return (f"Thiếu cột metadata tùy chọn: {suffix}" if suffix else "Thiếu cột metadata tùy chọn."), en_message
+    for prefix, tmpl_vi in (
+        ("missing_column_", "Không có cột {col} trong snapshot nguồn."),
+        ("invalid_", "Trường {col} chứa giá trị không phải số."),
+        ("negative_", "Trường {col} chứa giá trị âm."),
+        ("missing_", "Trường {col} bị thiếu ở một số bản ghi."),
+    ):
+        if code.startswith(prefix):
+            col = code[len(prefix):]
+            return tmpl_vi.format(col=col), en_message
+    return f"Cảnh báo kiểm định dữ liệu ({code}).", en_message
+
+
+def _make_issue(
+    issue_id: str,
+    severity: str,
+    dataset: str,
+    message_vi: str,
+    message_en: str,
+    count: int | None,
+    detected_at: str,
+    remediation_vi: str,
+    remediation_en: str,
+) -> dict[str, Any]:
+    return {
+        "issue_id": issue_id,
+        "severity": severity,
+        "dataset": dataset,
+        "message": message_vi,
+        "message_vi": message_vi,
+        "message_en": message_en,
+        "affected_records": count,
+        "detected_at": detected_at,
+        "remediation": remediation_vi,
+        "remediation_vi": remediation_vi,
+        "remediation_en": remediation_en,
+    }
 
 
 def _data_quality(inventory: dict[str, Any], provenance: list[dict[str, Any]], events: list[dict[str, Any]],
@@ -767,65 +882,163 @@ def _data_quality(inventory: dict[str, Any], provenance: list[dict[str, Any]], e
     for dataset, item in inventory.get("datasets", {}).items():
         status = item.get("status")
         if status == "missing":
-            issues.append(_make_issue(f"missing:{dataset}", "info", dataset,
+            issues.append(_make_issue(
+                f"missing:{dataset}", "info", dataset,
                 "Dataset chưa có trong archive; đây là tình trạng thiếu dữ liệu, không phải bằng chứng nguồn trả về rỗng.",
-                None, generated_at, "Chỉ thu thập từ nguồn được phép; giữ rõ missingness và provenance."))
+                "Dataset is absent from the archive; this indicates missing data, not proof that the upstream source returned empty.",
+                None, generated_at,
+                "Chỉ thu thập từ nguồn được phép; giữ rõ missingness và provenance.",
+                "Collect only from permitted sources; preserve explicit missingness and provenance.",
+            ))
         elif status in {"unreadable", "schema_mismatch"}:
-            issues.append(_make_issue(f"schema:{dataset}", "error", dataset,
+            issues.append(_make_issue(
+                f"schema:{dataset}", "error", dataset,
                 f"Dataset có trạng thái {status}; cần kiểm tra file và schema trước khi dùng.",
-                item.get("row_count"), generated_at, "Kiểm tra header/encoding và xử lý migration tường minh; không ghi đè archive."))
+                f"Dataset has status {status}; inspect file integrity and schema before downstream use.",
+                item.get("row_count"), generated_at,
+                "Kiểm tra header/encoding và xử lý migration tường minh; không ghi đè archive.",
+                "Verify CSV headers/encoding and run an explicit backed-up migration; never overwrite the raw archive.",
+            ))
         quality = item.get("quality", {})
         for finding in quality.get("errors", []) + quality.get("warnings", []):
-            issues.append(_make_issue(f"quality:{dataset}:{finding.get('code', 'unknown')}",
+            code = str(finding.get("code") or "unknown")
+            en_raw = str(finding.get("message") or "Data quality finding.")
+            msg_vi, msg_en = _localize_quality_finding(code, en_raw)
+            issues.append(_make_issue(
+                f"quality:{dataset}:{code}",
                 finding.get("severity", "warning"), dataset,
-                finding.get("message", "Data quality finding"), _number(finding.get("count")), generated_at,
-                "Đối chiếu source record và validator output; không tự sửa hoặc thay missing bằng zero."))
+                msg_vi, msg_en,
+                _number(finding.get("count")), generated_at,
+                "Đối chiếu bản ghi nguồn và kết quả validator; không tự sửa hoặc thay dữ liệu thiếu bằng số 0.",
+                "Cross-check source records against validator output; never silently coerce missing values to zero.",
+            ))
     if source_status == "unsafe_path":
-        issues.append(_make_issue("unsafe_path:research_observations", "error", "research_observations",
+        issues.append(_make_issue(
+            "unsafe_path:research_observations", "error", "research_observations",
+            "Tệp sidecar provenance là symbolic link hoặc trỏ ra ngoài thư mục dữ liệu; hệ thống đã từ chối export.",
             "Provenance sidecar is a symbolic link or resolves outside the data directory; it was not exported.",
-            None, generated_at, "Use a regular repository-local file after reviewing the source path."))
+            None, generated_at,
+            "Sử dụng tệp thông thường nằm trong thư mục dữ liệu sau khi kiểm tra đường dẫn nguồn.",
+            "Use a regular repository-local file after reviewing the source path.",
+        ))
     elif source_status == "schema_mismatch":
-        issues.append(_make_issue("schema:research_observations", "error", "research_observations",
-            "Provenance sidecar không khớp schema phiên bản kỳ vọng.", None, generated_at,
-            "Giữ bản gốc và thực hiện migration có sao lưu."))
+        issues.append(_make_issue(
+            "schema:research_observations", "error", "research_observations",
+            "Provenance sidecar không khớp schema phiên bản kỳ vọng.",
+            "Provenance sidecar does not match the expected schema version.",
+            None, generated_at,
+            "Giữ bản gốc và thực hiện migration có sao lưu.",
+            "Preserve the original file and run a backed-up schema migration.",
+        ))
     elif provenance:
         missing_source = sum(not item.get("source_reference") for item in provenance)
         missing_pub = sum(not item.get("published_at") for item in provenance)
         missing_observed = sum(not item.get("observed_at") for item in provenance)
         if missing_source:
-            issues.append(_make_issue("missing_source_reference", "warning", "research_observations",
-                "Một số observation không có source reference.", missing_source, generated_at,
-                "Ghi endpoint/URL đã được kiểm chứng; không đưa token/query credential vào reference."))
+            issues.append(_make_issue(
+                "missing_source_reference", "warning", "research_observations",
+                "Một số bản ghi quan sát không có tham chiếu nguồn (source_reference).",
+                "Some observation records lack a sanitized source_reference.",
+                missing_source, generated_at,
+                "Ghi endpoint/URL đã được kiểm chứng; không đưa token hoặc credential vào tham chiếu.",
+                "Record a verified endpoint/URL path; strip all query tokens and credentials.",
+            ))
         if missing_pub:
-            issues.append(_make_issue("publication_time_unknown", "warning", "research_observations",
-                "Publication timestamp còn thiếu; effective date không thay thế thời điểm công bố.", missing_pub,
-                generated_at, "Giữ published_at trống trừ khi nguồn cung cấp hoặc thời điểm được xác minh."))
+            issues.append(_make_issue(
+                "publication_time_unknown", "warning", "research_observations",
+                "Thiếu thời điểm công bố (published_at); ngày hiệu lực không thể thay thế thời điểm công bố.",
+                "Publication timestamp (published_at) is missing; effective date does not establish publication time.",
+                missing_pub, generated_at,
+                "Giữ published_at trống trừ khi nguồn cung cấp hoặc thời điểm được xác minh độc lập.",
+                "Leave published_at null unless explicitly supplied by the provider or independently verified.",
+            ))
         if missing_observed:
-            issues.append(_make_issue("observation_time_unknown", "warning", "research_observations",
-                "Observation timestamp còn thiếu; các bản ghi này không đủ căn cứ cho PIT mặc định.", missing_observed,
-                generated_at, "Không suy ra observed_at từ thời gian file hoặc kỳ hiệu lực."))
+            issues.append(_make_issue(
+                "observation_time_unknown", "warning", "research_observations",
+                "Thiếu thời điểm quan sát (observed_at); các bản ghi này không đủ căn cứ cho cutoff PIT mặc định.",
+                "Observation timestamp (observed_at) is missing; these records are excluded from strict PIT cutoffs.",
+                missing_observed, generated_at,
+                "Không suy ra observed_at từ thời gian sửa tệp hoặc kỳ hiệu lực.",
+                "Never infer observed_at from filesystem mtimes or reporting period dates.",
+            ))
         approximate = sum(item.get("observed_date_basis") == "approximate" for item in provenance)
         if approximate:
-            issues.append(_make_issue("approximate_dates", "warning", "research_observations",
-                "Một số ngày đến từ mirror/commit xấp xỉ và không PIT-safe.", approximate, generated_at,
-                "Giữ trạng thái approximate; không đưa các bản ghi này vào cutoff PIT mặc định."))
+            issues.append(_make_issue(
+                "approximate_dates", "warning", "research_observations",
+                "Một số ngày quan sát đến từ mirror/commit xấp xỉ và không an toàn cho phân tích PIT.",
+                "Some observation dates originate from approximate mirror/commit timestamps and are not PIT-safe.",
+                approximate, generated_at,
+                "Giữ trạng thái approximate; không đưa các bản ghi này vào cutoff PIT mặc định.",
+                "Retain the approximate basis flag and exclude these records from strict PIT backtests.",
+            ))
     if events:
         unconfirmed = sum(item.get("evidence_status") in {"unconfirmed", "inferred_not_transaction", "suspected", "heuristic"}
                           for item in events)
         censored = sum(bool(item.get("censored")) for item in events)
         if unconfirmed:
-            issues.append(_make_issue("unconfirmed_portfolio_events", "warning", "changes",
-                "Portfolio events mô tả thay đổi quan sát hoặc suy luận, không phải giao dịch đã xác nhận.",
-                unconfirmed, generated_at, "Đọc basis, corporate-action flag và coverage trước khi diễn giải."))
+            issues.append(_make_issue(
+                "unconfirmed_portfolio_events", "warning", "changes",
+                "Sự kiện danh mục mô tả thay đổi quan sát hoặc suy luận theo khối lượng, không phải giao dịch đã xác nhận.",
+                "Portfolio events describe observed or volume-inferred changes, not confirmed trade executions.",
+                unconfirmed, generated_at,
+                "Đọc kỹ basis, cờ sự kiện doanh nghiệp và phạm vi độ phủ trước khi diễn giải.",
+                "Inspect basis, corporate-action flags, and Top-N coverage before interpreting.",
+            ))
         if censored:
-            issues.append(_make_issue("top_n_censoring", "warning", "fund_holdings",
-                "Một số sự kiện là vào/rời top-N; không chứng minh mua mới hoặc bán hết.", censored,
-                generated_at, "Dùng factsheet đầy đủ nếu có; không chuyển missing position thành zero."))
+            issues.append(_make_issue(
+                "top_n_censoring", "warning", "fund_holdings",
+                "Một số sự kiện là vào/rời danh sách Top-N; không chứng minh mua mới hoàn toàn hoặc bán hết.",
+                "Some events reflect entering or leaving a Top-N list; they do not prove a full new buy or complete exit.",
+                censored, generated_at,
+                "Dùng danh mục đầy đủ từ factsheet nếu có; không chuyển vị thế thiếu thành số 0.",
+                "Use full factsheet disclosures when available; never treat an undisclosed rank drop as zero shares.",
+            ))
     for dataset, count in duplicate_counts.items():
         if count:
-            issues.append(_make_issue(f"duplicate:{dataset}", "warning", dataset,
-                "Phát hiện khóa trùng; kiểm tra xem đây là revision hợp lệ hay dữ liệu lặp ngoài dự kiến.",
-                count, generated_at, "Đối chiếu khóa tự nhiên, revision và chính sách deduplicate trước khi dùng."))
+            issues.append(_make_issue(
+                f"duplicate:{dataset}", "warning", dataset,
+                "Phát hiện khóa trùng; cần kiểm tra đây là bản hiệu chỉnh hợp lệ hay dữ liệu lặp ngoài dự kiến.",
+                "Duplicate natural keys detected; verify whether rows represent valid revisions or unintended duplicates.",
+                count, generated_at,
+                "Đối chiếu khóa tự nhiên, lịch sử hiệu chỉnh và quy tắc khử trùng trước khi dùng.",
+                "Review natural keys, revision timestamps, and deduplication rules before downstream analysis.",
+            ))
+    # Preserve original legacy prose for existing consumers; localized fields are additive.
+    for issue in issues:
+        issue_id = issue["issue_id"]
+        if issue_id.startswith("quality:"):
+            _, dataset, code = issue_id.split(":", 2)
+            findings = inventory.get("datasets", {}).get(dataset, {}).get("quality", {})
+            match = next((f for f in findings.get("errors", []) + findings.get("warnings", [])
+                          if f.get("code", "unknown") == code), None)
+            if match:
+                issue["message"] = match.get("message", "Data quality finding")
+            issue["remediation"] = "Đối chiếu source record và validator output; không tự sửa hoặc thay missing bằng zero."
+        elif issue_id == "unsafe_path:research_observations":
+            issue["message"] = issue["message_en"]
+            issue["remediation"] = issue["remediation_en"]
+        elif issue_id == "missing_source_reference":
+            issue["message"] = "Một số observation không có source reference."
+            issue["remediation"] = "Ghi endpoint/URL đã được kiểm chứng; không đưa token/query credential vào reference."
+        elif issue_id == "publication_time_unknown":
+            issue["message"] = "Publication timestamp còn thiếu; effective date không thay thế thời điểm công bố."
+            issue["remediation"] = "Giữ published_at trống trừ khi nguồn cung cấp hoặc thời điểm được xác minh."
+        elif issue_id == "observation_time_unknown":
+            issue["message"] = "Observation timestamp còn thiếu; các bản ghi này không đủ căn cứ cho PIT mặc định."
+            issue["remediation"] = "Không suy ra observed_at từ thời gian file hoặc kỳ hiệu lực."
+        elif issue_id == "approximate_dates":
+            issue["message"] = "Một số ngày đến từ mirror/commit xấp xỉ và không PIT-safe."
+            issue["remediation"] = "Giữ trạng thái approximate; không đưa các bản ghi này vào cutoff PIT mặc định."
+        elif issue_id == "unconfirmed_portfolio_events":
+            issue["message"] = "Portfolio events mô tả thay đổi quan sát hoặc suy luận, không phải giao dịch đã xác nhận."
+            issue["remediation"] = "Đọc basis, corporate-action flag và coverage trước khi diễn giải."
+        elif issue_id == "top_n_censoring":
+            issue["message"] = "Một số sự kiện là vào/rời top-N; không chứng minh mua mới hoặc bán hết."
+            issue["remediation"] = "Dùng factsheet đầy đủ nếu có; không chuyển missing position thành zero."
+        elif issue_id.startswith("duplicate:"):
+            issue["message"] = "Phát hiện khóa trùng; kiểm tra xem đây là revision hợp lệ hay dữ liệu lặp ngoài dự kiến."
+            issue["remediation"] = "Đối chiếu khóa tự nhiên, revision và chính sách deduplicate trước khi dùng."
+
     freshness_policy_cfg = inventory.get("freshness_policy") or {}
     sla_enabled = bool(freshness_policy_cfg.get("enabled"))
     sla_thresholds = freshness_policy_cfg.get("thresholds_days") or {}
@@ -850,8 +1063,10 @@ def _data_quality(inventory: dict[str, Any], provenance: list[dict[str, Any]], e
             issues.append(_make_issue(
                 f"stale:{name}", "warning", name,
                 f"Dataset vượt ngưỡng SLA độ mới ({age_at_ref} ngày > {sla_days} ngày theo cột {basis_col or 'date'}).",
+                f"Dataset exceeds configured freshness SLA ({age_at_ref}d > {sla_days}d on column {basis_col or 'date'}).",
                 item.get("row_count"), generated_at,
                 "Kiểm tra kỳ báo cáo nguồn và lần chạy thu thập gần nhất; không suy diễn dữ liệu mới khi nguồn chưa cập nhật.",
+                "Check upstream reporting cadence and latest collector run; never extrapolate stale disclosures.",
             ))
         warnings_list = item.get("quality", {}).get("warnings", [])
         structural_cnt = sum(int(f.get("count", 0) or 0) for f in warnings_list if f.get("code") in STRUCTURAL_WARNING_CODES)
@@ -873,18 +1088,22 @@ def _data_quality(inventory: dict[str, Any], provenance: list[dict[str, Any]], e
             "structural_warnings": structural_cnt,
             "anomaly_warnings": anomaly_cnt,
         })
-    freshness_policy_text = (
-        f"Owner-approved SLA enabled (days): {json.dumps(sla_thresholds, sort_keys=True)}; unconfigured datasets remain not_assessed_no_sla."
-        if sla_enabled and sla_thresholds
-        else "Age is shown; stale is not assigned because no dataset SLA is configured."
-    )
+    if sla_enabled and sla_thresholds:
+        sla_json = json.dumps(sla_thresholds, sort_keys=True)
+        freshness_policy_en = f"Owner-approved SLA enabled (days): {sla_json}; unconfigured datasets remain not_assessed_no_sla."
+        freshness_policy_vi = f"Đã bật ngưỡng SLA độ mới được phê duyệt (số ngày): {sla_json}; các dataset chưa cấu hình giữ trạng thái not_assessed_no_sla."
+    else:
+        freshness_policy_en = "Age is shown; stale is not assigned because no dataset SLA is configured."
+        freshness_policy_vi = "Tuổi dữ liệu được hiển thị; không gán nhãn quá hạn (stale) vì chưa cấu hình SLA cho dataset."
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at": generated_at,
         "status": "issues_found" if any(item["severity"] in {"error", "warning"} for item in issues)
             else "data_unavailable" if not inventory.get("data_directory_exists") or not inventory.get("summary", {}).get("datasets_available") else "no_findings_recorded",
         "data_directory_exists": inventory.get("data_directory_exists", False),
-        "freshness_policy": freshness_policy_text,
+        "freshness_policy": freshness_policy_en,
+        "freshness_policy_vi": freshness_policy_vi,
+        "freshness_policy_en": freshness_policy_en,
         "freshness_sla_thresholds_days": sla_thresholds if sla_enabled else {},
         "source_coverage": inventory.get("source_coverage", {}),
         "datasets": inventory_summaries,
@@ -929,10 +1148,22 @@ def _safe_workflow_status(root: Path, path: Path) -> tuple[dict[str, Any] | None
     if budget_status not in allowed_budget:
         budget_status = "unknown"
     exit_code = _number(raw.get("collector_exit_code"))
+    scope = _safe_label(raw.get("status_scope"))
+    source = _safe_label(raw.get("status_source"))
+    updated_at = _timestamp(raw.get("status_updated_at"))
+    # A status written inside the job does not establish the eventual workflow conclusion.
+    # Legacy artifacts have unknown scope; final statuses need an independently reported source and time.
+    if scope != "final_workflow" or source not in {"github_event", "github_actions_api"} or updated_at is None:
+        scope = "collector_budget" if scope == "collector_budget" else "unknown"
+    if source not in {"workflow_step", "github_event", "github_actions_api"}:
+        source = "unknown"
     return {
         "workflow": _safe_label(raw.get("workflow")) or "daily",
         "conclusion": conclusion,
         "recorded_at": recorded_at,
+        "status_scope": scope,
+        "status_source": source,
+        "status_updated_at": updated_at,
         "trigger": trigger,
         "collector_exit_code": int(exit_code) if exit_code is not None else None,
         "budget_status": budget_status,
@@ -951,19 +1182,38 @@ def _pipeline_status(root: Path, source_events: list[dict[str, Any]], source_eve
         outcomes[status] = outcomes.get(status, 0) + 1
     if source_event_outcomes is None and source_event_status in {"available", "empty"}:
         source_event_outcomes = outcomes
-    if wf_summary is not None:
+    if wf_summary is not None and wf_summary["status_scope"] == "final_workflow":
         overall_wf = wf_summary["conclusion"]
-        last_known = wf_summary["conclusion"]
-        explanation = (
-            f"Sanitized workflow status recorded at {wf_summary['recorded_at']} "
-            f"(trigger={wf_summary['trigger']}, budget={wf_summary['budget_status']})."
+        last_known = overall_wf
+        explanation_en = (
+            f"Completed workflow outcome reported by GitHub; last updated {wf_summary['status_updated_at']}. "
+            f"Observed at {wf_summary['recorded_at']}. This is historical, not proof of current source freshness."
+        )
+        explanation_vi = (
+            f"Kết quả workflow đã hoàn tất theo GitHub; cập nhật lúc {wf_summary['status_updated_at']}. "
+            f"Quan sát lúc {wf_summary['recorded_at']}. Đây là kết quả lịch sử, không chứng minh dữ liệu nguồn hiện còn mới."
+        )
+    elif wf_summary is not None:
+        overall_wf = "unknown_not_exported"
+        last_known = "unavailable_or_unverified"
+        explanation_en = (
+            f"Recorded step outcome: {wf_summary['conclusion']} at {wf_summary['recorded_at']}; "
+            "a status captured inside a job or with unknown scope cannot establish its final outcome."
+        )
+        explanation_vi = (
+            f"Kết quả bước được ghi: {wf_summary['conclusion']} lúc {wf_summary['recorded_at']}; "
+            "trạng thái ghi trong job hoặc không rõ phạm vi không chứng minh kết quả workflow cuối cùng."
         )
     else:
         overall_wf = "unknown_not_exported"
         last_known = "unavailable_or_unverified"
-        explanation = (
+        explanation_en = (
             "Individual request outcomes and collector counters do not prove that a GitHub Actions job completed "
             "successfully. No sanitized workflow-run result is stored in this checkout."
+        )
+        explanation_vi = (
+            "Kết quả từng request đơn lẻ và bộ đếm collector không tự chứng minh GitHub Actions job đã hoàn tất "
+            "thành công. Chưa có bản ghi kết quả chạy workflow đã làm sạch trong checkout này."
         )
     return {
         "schema_version": SCHEMA_VERSION,
@@ -972,7 +1222,9 @@ def _pipeline_status(root: Path, source_events: list[dict[str, Any]], source_eve
         "overall_workflow_status": overall_wf,
         "workflow_status_record": wf_summary,
         "workflow_status_file_state": wf_status,
-        "status_explanation": explanation,
+        "status_explanation": explanation_en,
+        "status_explanation_vi": explanation_vi,
+        "status_explanation_en": explanation_en,
         "latest_collector_summary": summary,
         "collector_summary_status": summary_status,
         "latest_source_request": latest_request,
@@ -1358,9 +1610,22 @@ def export_dashboard(data_dir: str | Path, output_dir: str | Path, *, generated_
                 findings = []
             if not isinstance(findings, list):
                 findings = []
-            clean_findings = [{"code": _safe_label(x.get("code")), "severity": _safe_label(x.get("severity")),
-                               "count": _number(x.get("count"))}
-                              for x in findings if isinstance(x, dict)]
+            clean_findings = []
+            for x in findings:
+                if not isinstance(x, dict):
+                    continue
+                f_code = _safe_label(x.get("code"))
+                f_msg_vi, f_msg_en = _localize_quality_finding(
+                    f_code or "unknown",
+                    f"Persisted validator finding ({f_code or 'unknown'}).",
+                )
+                clean_findings.append({
+                    "code": f_code,
+                    "severity": _safe_label(x.get("severity")),
+                    "count": _number(x.get("count")),
+                    "message_vi": f_msg_vi,
+                    "message_en": f_msg_en,
+                })
             quality_records.append({"dataset": _safe_label(row.get("dataset")), "fund": _text(row.get("fund")),
                 "source": _safe_label(row.get("source")), "status": _safe_label(row.get("status")),
                 "row_count": _number(row.get("row_count")), "findings": clean_findings,

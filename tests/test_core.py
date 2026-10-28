@@ -555,3 +555,34 @@ def test_export_holdings_long_complete_top10_and_inferred_publish_date(tmp_path)
     assert not df[df.fund == "NA"].complete_top10.any()
     assert df.publish_date_inferred.all()
     assert set(df.publish_date_basis) == {"observed_date_proxy_not_official_publication"}
+
+
+def test_english_reports_keep_missingness_and_inference_caveats():
+    import pandas as pd
+    from vnfa.config import DEFAULTS
+    from vnfa.diff import CHANGE_COLUMNS
+    from vnfa.report import render_report, render_text
+    changes = pd.DataFrame([], columns=CHANGE_COLUMNS)
+    info = {'n_ok': 1, 'n_total': 1, 'n_failed': 0, 'n_changed': 0, 'n_baseline': 1}
+    md = render_report('2026-10-27', changes, info, DEFAULTS, lang='en')
+    assert 'not confirmed trades' in md
+    assert 'not proof' in md
+    assert 'published' in md and 'observed' in md
+    assert 'not confirmed trades' in render_text('2026-10-27', changes, info, DEFAULTS, lang='en')
+
+
+def test_reaction_english_preserves_gap_and_missing_flow(tmp_path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('reaction_en_test', 'scripts/analyze_reaction.py')
+    ar = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ar)
+    funds = pd.DataFrame([{'code':'F1', 'asset_code':'STOCK', 'mgmt_co':'CO'}])
+    nav = pd.DataFrame([{'fund':'F1', 'date':'2025-10-24', 'nav':10000}, {'fund':'F1', 'date':'2025-10-31', 'nav':10200}])
+    snap = pd.DataFrame([{'fund':'F1', 'date':'2026-10-27', 'nav':13000}])
+    changes = pd.DataFrame([{'observed_date':'2026-10-27', 'fund':'F1', 'ticker':'AAA', 'action':'BUY', 'basis':'volume', 'est_value_vnd':np.nan, 'asset_class':'STOCK'}])
+    report = ar.render_reaction_en(funds, nav, snap, pd.DataFrame(), changes, '2025-10-25')
+    assert 'Historical NAV (`nav.csv`)' in report
+    assert 'Observed NAV snapshots (`nav_snapshots.csv`)' in report
+    assert '+30.0%' not in report
+    assert '| 2026-10 | 1 | 0 | NA | NA | NA | 100.0% |' in report
+    assert 'not confirmed trades' in report

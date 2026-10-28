@@ -750,7 +750,7 @@ def build_financial_charts(
     combined["_nf"] = combined["field_name"].map(_strip_accents)
     periods = sorted(combined["period"].unique().tolist())[-max_quarters:]
 
-    def _series_for(patterns: list[str], label: str) -> dict[str, Any] | None:
+    def _series_for(patterns: list[str], series_key: str, label: str) -> dict[str, Any] | None:
         for pat in patterns:
             mask = combined["_nf"].str.match(pat, na=False) if pat.startswith("^") else combined["_nf"].str.contains(pat, regex=False, na=False)
             sub = combined[mask]
@@ -760,75 +760,75 @@ def build_financial_charts(
                 by_p = dict(zip(exact["period"], exact["value"]))
                 pts = [{"period": p, "value": _finite_float(by_p.get(p))} for p in periods if p in by_p]
                 if pts:
-                    return {"label": label, "source_field": first_name, "points": pts}
+                    return {"series_key": series_key, "label": label, "source_field": first_name, "points": pts}
         return None
 
-    chart_templates: dict[str, list[tuple[str, str, list[tuple[str, list[str]]]]]] = {
+    chart_templates: dict[str, list[tuple[str, str, str, list[tuple[str, str, list[str]]]]]] = {
         "BANK": [
-            ("Thu nhập lãi thuần & LNST", "bar_line", [
-                ("Thu nhập lãi thuần", ["thu nhap lai thuan"]),
-                ("LNST cổ đông Ngân hàng", ["loi nhuan sau thue cua co dong", "loi nhuan sau thue"]),
+            ("bank_income", "Thu nhập lãi thuần & LNST", "bar_line", [
+                ("nii", "Thu nhập lãi thuần", ["thu nhap lai thuan"]),
+                ("npat_bank", "LNST cổ đông Ngân hàng", ["loi nhuan sau thue cua co dong", "loi nhuan sau thue"]),
             ]),
-            ("Hiệu quả sinh lời: ROE, ROA & NIM (%)", "line", [
-                ("ROE (%)", ["^roe$", "ty suat sinh loi tren von chu so huu"]),
-                ("NIM (%)", ["^nim$", "ty le thu nhap lai thuan"]),
-                ("ROA (%)", ["^roa$", "ty suat sinh loi tren tong tai san"]),
+            ("bank_profitability", "Hiệu quả sinh lời: ROE, ROA & NIM (%)", "line", [
+                ("roe", "ROE (%)", ["^roe$", "ty suat sinh loi tren von chu so huu"]),
+                ("nim", "NIM (%)", ["^nim$", "ty le thu nhap lai thuan"]),
+                ("roa", "ROA (%)", ["^roa$", "ty suat sinh loi tren tong tai san"]),
             ]),
-            ("Quy mô Tín dụng & Huy động", "bar", [
-                ("Cho vay khách hàng", ["cho vay khach hang"]),
-                ("Tiền gửi khách hàng", ["tien gui cua khach hang", "tien gui khach hang"]),
+            ("bank_scale", "Quy mô Tín dụng & Huy động", "bar", [
+                ("customer_loans", "Cho vay khách hàng", ["cho vay khach hang"]),
+                ("customer_deposits", "Tiền gửi khách hàng", ["tien gui cua khach hang", "tien gui khach hang"]),
             ]),
-            ("Định giá P/E & P/B", "line", [
-                ("P/E", ["^p/e$", "^pe$"]),
-                ("P/B", ["^p/b$", "^pb$"]),
+            ("valuation_pe_pb", "Định giá P/E & P/B", "line", [
+                ("pe", "P/E", ["^p/e$", "^pe$"]),
+                ("pb", "P/B", ["^p/b$", "^pb$"]),
             ]),
         ],
         "NON_BANK_FINANCIAL": [
-            ("Doanh thu hoạt động & LNST", "bar_line", [
-                ("Doanh thu hoạt động", ["doanh thu hoat dong", "doanh thu thuan"]),
-                ("Lợi nhuận sau thuế", ["loi nhuan sau thue"]),
+            ("nbf_income", "Doanh thu hoạt động & LNST", "bar_line", [
+                ("operating_revenue", "Doanh thu hoạt động", ["doanh thu hoat dong", "doanh thu thuan"]),
+                ("npat", "Lợi nhuận sau thuế", ["loi nhuan sau thue"]),
             ]),
-            ("Hiệu quả sinh lời: ROE & ROA (%)", "line", [
-                ("ROE (%)", ["^roe$", "ty suat sinh loi tren von chu so huu"]),
-                ("ROA (%)", ["^roa$", "ty suat sinh loi tren tong tai san"]),
+            ("nbf_profitability", "Hiệu quả sinh lời: ROE & ROA (%)", "line", [
+                ("roe", "ROE (%)", ["^roe$", "ty suat sinh loi tren von chu so huu"]),
+                ("roa", "ROA (%)", ["^roa$", "ty suat sinh loi tren tong tai san"]),
             ]),
-            ("Cơ cấu Tổng tài sản & Vốn chủ sở hữu", "bar", [
-                ("Tổng tài sản", ["tong cong tai san", "tong tai san"]),
-                ("Vốn chủ sở hữu", ["von chu so huu"]),
+            ("nbf_capital", "Cơ cấu Tổng tài sản & Vốn chủ sở hữu", "bar", [
+                ("total_assets", "Tổng tài sản", ["tong cong tai san", "tong tai san"]),
+                ("equity", "Vốn chủ sở hữu", ["von chu so huu"]),
             ]),
-            ("Định giá P/E & P/B", "line", [
-                ("P/E", ["^p/e$", "^pe$"]),
-                ("P/B", ["^p/b$", "^pb$"]),
+            ("valuation_pe_pb", "Định giá P/E & P/B", "line", [
+                ("pe", "P/E", ["^p/e$", "^pe$"]),
+                ("pb", "P/B", ["^p/b$", "^pb$"]),
             ]),
         ],
         "NON_FINANCIAL": [
-            ("Doanh thu thuần & Lợi nhuận sau thuế", "bar_line", [
-                ("Doanh thu thuần", ["doanh thu thuan ve ban hang", "doanh thu thuan"]),
-                ("LNST Công ty mẹ", ["loi nhuan sau thue cua co dong", "loi nhuan sau thue"]),
+            ("nf_income", "Doanh thu thuần & Lợi nhuận sau thuế", "bar_line", [
+                ("net_revenue", "Doanh thu thuần", ["doanh thu thuan ve ban hang", "doanh thu thuan"]),
+                ("npat_parent", "LNST Công ty mẹ", ["loi nhuan sau thue cua co dong", "loi nhuan sau thue"]),
             ]),
-            ("Biên lợi nhuận & ROE (%)", "line", [
-                ("Biên lãi gộp (%)", ["ty suat loi nhuan gop bien", "bien lai gop"]),
-                ("Biên lãi ròng (%)", ["ty suat sinh loi tren doanh thu thuan", "bien loi nhuan rong"]),
-                ("ROE (%)", ["^roe$", "ty suat sinh loi tren von chu so huu"]),
+            ("nf_margins", "Biên lợi nhuận & ROE (%)", "line", [
+                ("gross_margin", "Biên lãi gộp (%)", ["ty suat loi nhuan gop bien", "bien lai gop"]),
+                ("net_margin", "Biên lãi ròng (%)", ["ty suat sinh loi tren doanh thu thuan", "bien loi nhuan rong"]),
+                ("roe", "ROE (%)", ["^roe$", "ty suat sinh loi tren von chu so huu"]),
             ]),
-            ("Cơ cấu Nguồn vốn & Hàng tồn kho", "bar", [
-                ("Tổng tài sản", ["tong cong tai san", "tong tai san"]),
-                ("Nợ phải trả", ["^no phai tra$"]),
-                ("Vốn chủ sở hữu", ["^von chu so huu$"]),
-                ("Hàng tồn kho", ["^hang ton kho$"]),
+            ("nf_balance", "Cơ cấu Nguồn vốn & Hàng tồn kho", "bar", [
+                ("total_assets", "Tổng tài sản", ["tong cong tai san", "tong tai san"]),
+                ("total_liabilities", "Nợ phải trả", ["^no phai tra$"]),
+                ("equity", "Vốn chủ sở hữu", ["^von chu so huu$"]),
+                ("inventories", "Hàng tồn kho", ["^hang ton kho$"]),
             ]),
-            ("Định giá P/E & P/B", "line", [
-                ("P/E", ["^p/e$", "^pe$"]),
-                ("P/B", ["^p/b$", "^pb$"]),
+            ("valuation_pe_pb", "Định giá P/E & P/B", "line", [
+                ("pe", "P/E", ["^p/e$", "^pe$"]),
+                ("pb", "P/B", ["^p/b$", "^pb$"]),
             ]),
         ],
     }
 
     charts: list[dict[str, Any]] = []
-    for title, kind, series_specs in chart_templates.get(macro_group, chart_templates["NON_FINANCIAL"]):
-        series_list = [s for s in (_series_for(pats, lbl) for lbl, pats in series_specs) if s is not None]
+    for chart_id, title, kind, series_specs in chart_templates.get(macro_group, chart_templates["NON_FINANCIAL"]):
+        series_list = [s for s in (_series_for(pats, skey, lbl) for skey, lbl, pats in series_specs) if s is not None]
         if series_list:
-            charts.append({"title": title, "chart_type": kind, "series": series_list})
+            charts.append({"chart_id": chart_id, "title": title, "chart_type": kind, "series": series_list})
     return charts
 
 
