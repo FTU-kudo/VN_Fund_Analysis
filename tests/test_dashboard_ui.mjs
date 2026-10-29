@@ -498,3 +498,33 @@ test('pipeline UI does not promote a pre-completion step to a verified workflow 
   data.datasets.pipeline_status.summary.workflow_status_record.status_scope='final_workflow';
   assert.match(renderPipelineEnglish(data),/Ingestion workflow: success/);
 });
+
+test('loader retries mixed export generations and never hides real schema mismatches', async () => {
+  let manifests = 0;
+  const fetcher = async (url) => {
+    if (String(url).endsWith('/manifest.json')) {
+      manifests += 1;
+      return {ok:true, json:async () => ({schema_version:'1.0.0', datasets:{funds:{file:'funds.json',schema_version:'1.0.0',status:'available',record_count:0,generated_at:manifests === 1 ? 'old' : 'new'}}})};
+    }
+    return {ok:true, json:async () => ({schema_version:'1.0.0',dataset:'funds',status:'available',record_count:0,records:[],generated_at:'new'})};
+  };
+  const recovered = await loadDashboardData(fetcher, 'https://example.test/app.mjs');
+  assert.equal(manifests, 2);
+  assert.equal(recovered.datasets.funds.status, 'available');
+  const stuck = await loadDashboardData(async (url) => String(url).endsWith('/manifest.json')
+    ? {ok:true,json:async()=>({schema_version:'1.0.0',datasets:{funds:{file:'funds.json',schema_version:'1.0.0',generated_at:'old'}}})}
+    : {ok:true,json:async()=>({schema_version:'1.0.0',dataset:'funds',status:'available',record_count:0,records:[],generated_at:'new'})}, 'https://example.test/app.mjs');
+  assert.equal(stuck.datasets.funds.status, 'mixed_generation');
+});
+
+test('overview reads real provider field aliases from an existing static bundle', () => {
+  const bundle = {symbol:'AAA', scanned_at:'2026-10-28T06:00:00Z', master:{}, page1_overview:{
+    profile_info:{CompanyNameVi:'Example Company'},
+    stock_info:{RefP:125, FundamentalPoint:81, TechnicalPoint:87},
+    peers:{AveragePE:8.27, Peer:[{StockCode:'BBB',Price:100,PE:5}]},
+    last_bid_offer:{B1P:123,B1V:4321,S1P:124,S1V:5432},
+    list_transaction:[{MatchedTime:1793173500,MatchedPrice:124,MatchedVolume:99,Side:'B'}],
+  }};
+  const html = renderYuantaStockTabs('AAA','overview',{status:'available',bundle},new URLSearchParams(),'en').body;
+  for (const value of ['Example Company','125','81','87','BBB','8.27','123','4,321','1793173500','99']) assert.ok(html.includes(value), value);
+});

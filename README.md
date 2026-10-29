@@ -236,3 +236,11 @@ Báo cáo `reports/reaction_<mốc>.md` gồm: NAV từ mốc theo loại quỹ,
 - Đây là công cụ nghiên cứu, không phải khuyến nghị đầu tư.
 
 Trạng thái collector/ngân sách ghi trong job không chứng minh kết quả workflow cuối cùng. Dashboard chỉ hiển thị kết quả hoàn tất lịch sử khi nhận event hoàn tất từ GitHub hoặc bản ghi API đã xác minh; thời điểm GitHub cập nhật và thời điểm quan sát được giữ riêng, không chứng minh dữ liệu hiện còn mới.
+
+### Kiểm tra bổ sung NAV lịch sử
+
+Khi `[collect].nav_refresh_existing = true` (mặc định), daily thử tải tiếp lịch sử NAV của quỹ đã có dữ liệu từ **ngày hiệu lực cuối cùng đã lưu, bao gồm ngày đó**, đến ngày chạy. Dữ liệu phải qua validator; bản ghi ngoài khoảng yêu cầu bị loại, và phản hồi rỗng/lỗi không xóa lịch sử cũ. Snapshot NAV theo ngày quan sát không được ghép vào chuỗi lịch sử. Có thể tắt bằng `nav_refresh_existing = false`. Nguồn có thể trả dữ liệu cũ, không đầy đủ hoặc bỏ qua bộ lọc ngày; chạy thành công không chứng minh dữ liệu đã cập nhật.
+
+Dòng log `NAV history` và `data/last_run.json` (khi không dry-run) ghi riêng số phản hồi hợp lệ kể cả rỗng (`n_nav_funds`), số rỗng, số không có dòng trong khoảng, số lỗi, dòng được chấp nhận, dòng bị loại ngoài khoảng, ngày hiệu lực lớn nhất được chấp nhận và số dòng thêm/đổi. Ngày lớn nhất chỉ là cực đại của những dòng được chấp nhận, **không** chứng minh mọi quỹ cập nhật tới ngày đó. Test live có thể dùng workflow daily với `limit=2`, `dry_run=true` trước khi chạy toàn bộ trên main; dry-run không ghi archive; `write_enabled=False` và số dòng thêm/đổi chỉ là dự kiến. Không chia sẻ token, query string hoặc payload nguồn khi gửi log.
+
+**Yuanta:** `scanned_ok` hiện chỉ cho biết tác vụ mã hoàn tất, không chứng minh mọi endpoint thành công. Chế độ incremental/module-select có rủi ro ghi đè phần checkpoint cũ khi endpoint trả rỗng/lỗi hoặc module không được chọn; chưa nên coi là refresh an toàn cho archive duy nhất. Giữ bản sao cache/artifact trước khi kiểm thử và đối chiếu diagnostics từng mã; chưa suy diễn độ đầy đủ từ workflow xanh.

@@ -75,3 +75,11 @@ python scripts/check_data_budget.py --data-dir data
 ```
 
 Routine tests run offline. CSV schemas remain compatible with legacy semicolon-separated files. Generated exports, Yuanta lake files, secrets and large artifacts are excluded from Git. Check provider licensing and reuse terms independently: this repository does not grant rights to third-party data. See [Vietnamese README](README.md) and `docs/` for full operational notes, provenance, audit findings, staging and migration instructions.
+
+### Checking historical NAV refresh
+
+With `[collect].nav_refresh_existing = true` (the default), the daily collector requests history from the last stored effective date, inclusive, through the run date. Responses are validated and rows outside that window are excluded; empty or failed responses do not erase the previous history. Observation-date snapshots are not merged into effective-date history. Set `nav_refresh_existing = false` to disable refresh for existing funds. The provider may return stale or incomplete data or ignore date filters; successful execution does not establish freshness.
+
+The `NAV history` log and `data/last_run.json` (non-dry runs) distinguish valid responses including empty ones (`n_nav_funds`), empty responses, no rows in range, failures, accepted and out-of-range rows, maximum accepted effective date, and new/changed rows. The maximum does not imply every fund is current. A live smoke test can use the daily workflow with `limit=2`, `dry_run=true` before a full main run; a dry run does not write the archive; `write_enabled=False` and new/changed rows are only projected. Do not share tokens, query strings or raw provider payloads with logs.
+
+**Yuanta:** `scanned_ok` means a ticker task finished, not that all endpoints succeeded. Incremental/module-selected scans may overwrite older checkpoint sections after an empty/failed endpoint or when modules are omitted; they should not yet be treated as a safe refresh of the only archive. Preserve a cache/artifact backup before testing and inspect per-ticker diagnostics; a green workflow does not prove completeness.

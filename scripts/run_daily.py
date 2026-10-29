@@ -38,12 +38,12 @@ def _response_observed_at(client) -> str | None:
     return event.get("observed_at") if event else None
 
 
-def _call_client_fund(fn, *args, fund_code: str | None = None):
+def _call_client_fund(fn, *args, fund_code: str | None = None, **kwargs):
     try:
-        return fn(*args, fund_code=fund_code)
+        return fn(*args, fund_code=fund_code, **kwargs)
     except TypeError as exc:
         if "fund_code" in str(exc):
-            return fn(*args)
+            return fn(*args, **kwargs)
         raise
 
 
@@ -94,9 +94,19 @@ def run(cfg: dict, client, store: Store, observed_date: str, limit: int | None =
     col = cfg["collect"]
     bond_store = Store(store.root, write=store.write, subdir="bonds")
     tables = TableStore(store.root, write=store.write)
-    nav_known = set(tables.read_nav().fund) if col["nav"] else set()
+    nav_last_dates = {}
+    if col["nav"]:
+        previous_nav = tables.read_nav()
+        if not previous_nav.empty and {"fund", "date"}.issubset(previous_nav.columns):
+            dated = previous_nav.copy()
+            dated["date"] = pd.to_datetime(dated["date"], errors="coerce")
+            dated = dated.dropna(subset=["fund", "date"])
+            nav_last_dates = dated.groupby("fund")["date"].max().dt.strftime("%Y-%m-%d").to_dict()
     info = dict(n_total=len(funds), n_ok=0, n_failed=0, n_partial=0, n_changed=0, n_baseline=0,
                 n_empty_holdings=0, n_bond_changed=0, n_nav_funds=0, n_nav_history_failed=0,
+                n_nav_history_empty=0, n_nav_history_future_skipped=0,
+                n_nav_history_no_in_range=0, n_nav_history_out_of_range_rows=0,
+                n_nav_history_rows_accepted=0, nav_history_max_effective_date=None,
                 n_nav_invalid=0, n_quality_rejected=0, n_quality_errors=0, n_quality_warnings=0,
                 n_quality_reports=0, n_provenance_observations=0, n_provenance_write_failed=0,
                 failed=[], by_class={}, empty_tables={})
@@ -247,16 +257,37 @@ def run(cfg: dict, client, store: Store, observed_date: str, limit: int | None =
 
             if nav_value is not None:
                 tables.append_nav_snapshot(code, nav_value, observed_date)
-            if col["nav"] and hasattr(client, "nav_history") and code not in nav_known:
-                # NAV history là dữ liệu bổ sung; lỗi endpoint này không được biến một
-                # lần lấy holdings thành thất bại sau khi snapshot đã ghi.
+            nav_last = nav_last_dates.get(code)
+            refresh_nav = nav_last is None or col.get("nav_refresh_existing", True)
+            if col["nav"] and hasattr(client, "nav_history") and refresh_nav and nav_last and nav_last > observed_date:
+                # Không lấy dữ liệu vượt thời điểm chạy lại có ngày tham chiếu trong quá khứ.
+                info["n_nav_history_future_skipped"] += 1
+            elif col["nav"] and hasattr(client, "nav_history") and refresh_nav:
+                # Tải bổ sung từ ngày hiệu lực đã lưu (bao gồm ngày cuối để nhận revision).
+                # Giá trị snapshot ngày quan sát không được ghép vào lịch sử nguồn.
                 try:
-                    nav_frame = _call_client_fund(client.nav_history, f["id"], fund_code=code)
+                    nav_args = {"from_date": nav_last, "to_date": observed_date} if nav_last else {}
+                    nav_frame = _call_client_fund(client.nav_history, f["id"], fund_code=code, **nav_args)
+                    if nav_frame.empty:
+                        info["n_nav_history_empty"] += 1
                     nav_quality = validate_nav(nav_frame.assign(fund=code))
                     nav_flags = _record_quality(nav_quality, quality_reports, fund=code)
                     require_valid(nav_quality)
+                    if not nav_frame.empty:
+                        dates = pd.to_datetime(nav_frame["date"], errors="raise").dt.strftime("%Y-%m-%d")
+                        in_range = dates <= observed_date
+                        if nav_last:
+                            in_range &= dates >= nav_last
+                        info["n_nav_history_out_of_range_rows"] += int((~in_range).sum())
+                        if not in_range.any():
+                            info["n_nav_history_no_in_range"] += 1
+                        nav_frame = nav_frame.loc[in_range].copy()
+                        if not nav_frame.empty:
+                            latest_accepted = dates.loc[in_range].max()
+                            info["nav_history_max_effective_date"] = max(info["nav_history_max_effective_date"] or latest_accepted, latest_accepted)
+                            info["n_nav_history_rows_accepted"] += len(nav_frame)
                     nav_parts[code] = nav_frame
-                    info["n_nav_funds"] += 1
+                    info["n_nav_funds"] += 1  # valid response, including empty; see separate counters
                     nav_observed_at = _response_observed_at(client)
                     if nav_observed_at:
                         summary_obs = make_nav_history_summary_observation(
@@ -270,7 +301,7 @@ def run(cfg: dict, client, store: Store, observed_date: str, limit: int | None =
                             provenance_observations.append(summary_obs)
                 except Exception as e:
                     info["n_nav_history_failed"] += 1
-                    log.warning("%s: tải NAV history lỗi (%s: %s)", code, type(e).__name__, e)
+                    log.warning("%s: tải NAV history lỗi (%s)", code, type(e).__name__)
 
             info["n_ok"] += 1
             info["by_class"][f["asset_code"]] = info["by_class"].get(f["asset_code"], 0) + 1
@@ -288,7 +319,15 @@ def run(cfg: dict, client, store: Store, observed_date: str, limit: int | None =
         # Lỗi dữ liệu NAV bổ sung không được chặn việc ghi nhật ký thay đổi holdings.
         info["nav_rows_new"] = 0
         info["n_nav_history_failed"] += len(nav_parts)
-        log.error("Không cập nhật được NAV history (%s: %s)", type(e).__name__, e)
+        log.error("Không cập nhật được NAV history (%s)", type(e).__name__)
+    log.info(
+        "NAV history: responses=%d empty=%d no_in_range=%d failed=%d future_skipped=%d "
+        "accepted_rows=%d out_of_range_rows=%d max_effective_date=%s new_or_changed_rows=%d write_enabled=%s",
+        info["n_nav_funds"], info["n_nav_history_empty"], info["n_nav_history_no_in_range"],
+        info["n_nav_history_failed"], info["n_nav_history_future_skipped"],
+        info["n_nav_history_rows_accepted"], info["n_nav_history_out_of_range_rows"],
+        info["nav_history_max_effective_date"] or "unknown", info["nav_rows_new"], store.write,
+    )
     changes = pd.concat(all_changes, ignore_index=True) if all_changes else pd.DataFrame(columns=CHANGE_COLUMNS)
     prior_changes = store.read_changes()
     if not prior_changes.empty:
