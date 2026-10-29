@@ -21,7 +21,7 @@
   "n_quality_errors": 0,
   "n_quality_warnings": 607,
   "n_quality_reports": 281,
-  "n_provenance_observations": 1981,
+  "n_provenance_observations": 353,
   "n_provenance_write_failed": 0,
   "failed": [],
   "by_class": {
