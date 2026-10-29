@@ -499,3 +499,17 @@ def test_clean_for_json_replaces_nan_and_inf_with_none_never_zero():
     encoded = json.dumps(cleaned, allow_nan=False)
     assert json.loads(encoded)["zero"] == 0.0
     assert json.loads(encoded)["a"] is None
+
+
+def test_extract_master_uses_observed_source_aliases_and_does_not_assume_exchange():
+    from scripts.scan_yuanta_universe import _extract_overview_summary
+
+    item, _ = _extract_overview_summary("AAA", {}, {
+        "profile_info": {"CompanyNameVi": "Example Company"},
+        "stock_info": {"RefP": 125, "LastP": 126, "FundamentalPoint": 81, "TechnicalPoint": 87},
+        "stock_rating_info": {"StockRatingPoint": 84},
+    }, [])
+    assert item["company_name"] == "Example Company"
+    assert item["exchange"] is None
+    assert (item["ref_price"], item["last_price"], item["stock_rating"]) == (125, 126, 84)
+    assert (item["fundamental_score"], item["technical_score"]) == (81, 87)

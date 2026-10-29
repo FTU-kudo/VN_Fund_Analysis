@@ -795,3 +795,71 @@ def test_reaction_english_cli_offline(tmp_path):
     assert 'publication time is unknown' in result.stdout
     assert 'not investment advice' in result.stdout
     assert (tmp_path / 'report.md').read_text(encoding='utf-8') == result.stdout.rstrip() + '\n'
+
+
+def test_daily_incremental_nav_refresh_preserves_old_and_bounds_provider_response(tmp_path):
+    import importlib.util
+    from vnfa.config import load_config
+    from vnfa.store import Store, TableStore
+
+    spec = importlib.util.spec_from_file_location("run_daily_incremental", "scripts/run_daily.py")
+    rd = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rd)
+
+    class Client:
+        run_id = "test"
+        last_source_event = {"observed_at": "2026-10-28T06:00:00Z"}
+        calls = []
+        mode = "success"
+
+        def list_products(self):
+            return [{"id": 1, "code": "F1", "shortName": "F1", "owner": {"shortName": "CO"},
+                     "dataFundAssetType": {"code": "STOCK"}}]
+
+        def product_detail(self, _):
+            return {"id": 1, "code": "F1", "nav": 123, "owner": {"shortName": "CO"},
+                    "assetType": {"code": "STOCK"}, "topHoldings": []}
+
+        def nav_history(self, _, from_date=None, to_date=None, fund_code=None):
+            self.calls.append((from_date, to_date, fund_code))
+            if self.mode == "empty":
+                return pd.DataFrame(columns=["date", "nav"])
+            if self.mode == "error":
+                raise RuntimeError("private response")
+            if self.mode == "invalid":
+                return pd.DataFrame([{"date": "2026-10-28", "nav": -1}])
+            return pd.DataFrame([
+                {"date": "2025-01-01", "nav": 999},  # out of window, must not revise
+                {"date": "2025-10-31", "nav": 101},  # revision is allowed
+                {"date": "2026-10-27", "nav": 110},
+                {"date": "2026-10-30", "nav": 200},  # future, excluded
+            ])
+
+    store = Store(tmp_path)
+    pd.DataFrame([{"fund": "F1", "date": "2025-01-01", "nav": 90},
+                  {"fund": "F1", "date": "2025-10-31", "nav": 100}]).to_csv(tmp_path / "nav.csv", sep=";", index=False)
+    client = Client()
+    cfg = load_config(None)
+    info, _ = rd.run(cfg, client, store, "2026-10-28")
+    assert client.calls == [("2025-10-31", "2026-10-28", "F1")]
+    assert info["n_nav_history_rows_accepted"] == 2
+    assert info["n_nav_history_out_of_range_rows"] == 2
+    assert info["nav_history_max_effective_date"] == "2026-10-27"
+    history = TableStore(tmp_path).read_nav()
+    assert dict(zip(history.date, history.nav)) == {"2025-01-01": 90, "2025-10-31": 101, "2026-10-27": 110}
+    for mode in ("empty", "error", "invalid"):
+        client.mode = mode
+        result, _ = rd.run(cfg, client, store, "2026-10-28")
+        pd.testing.assert_frame_equal(history, TableStore(tmp_path).read_nav())
+        assert result["n_nav_history_empty" if mode == "empty" else "n_nav_history_failed"] == 1
+    cfg["collect"]["nav_refresh_existing"] = False
+    count = len(client.calls)
+    rd.run(cfg, client, store, "2026-10-28")
+    assert len(client.calls) == count
+    cfg["collect"]["nav_refresh_existing"] = True
+    other_root = tmp_path / "earlier_run"
+    other_root.mkdir()
+    history.to_csv(other_root / "nav.csv", sep=";", index=False)
+    info, _ = rd.run(cfg, client, Store(other_root), "2025-10-01")
+    assert info["n_nav_history_future_skipped"] == 1
+    assert len(client.calls) == count

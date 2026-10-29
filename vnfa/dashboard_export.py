@@ -1048,10 +1048,15 @@ def _data_quality(inventory: dict[str, Any], provenance: list[dict[str, Any]], e
         fresh_info = item.get("freshness") or {}
         basis_col = fresh_info.get("date_basis")
         if basis_col and ranges.get(basis_col, {}).get("last"):
+            latest_basis = basis_col
             latest = ranges[basis_col]["last"]
         else:
-            last_dates = [value.get("last") for value in ranges.values() if value.get("last")]
-            latest = max(last_dates) if last_dates else None
+            last_dates = [(value.get("last"), key) for key, value in ranges.items() if value.get("last")]
+            latest, latest_basis = max(last_dates) if last_dates else (None, None)
+        # Inventory normalizes dates through UTC for comparisons. Do not present a
+        # date-only source value as a precise midnight timestamp / 07:00 ICT.
+        if latest and latest_basis in {"date", "last_seen", "observed_date", "update_date", "report_date", "period_end", "effective_date"}:
+            latest = latest[:10]
         age_at_ref = fresh_info.get("age_days")
         if age_at_ref is None:
             ages = [value.get("age_days_reference_date") for value in ranges.values()

@@ -8,7 +8,8 @@ exclude = []
 
 [collect]
 # Bảng dữ liệu bổ sung thu cho MỌI quỹ ở trên (đặt false để tắt)
-nav = true            # NAV: chụp hằng ngày (data/nav_snapshots.csv) + lịch sử dài tải 1 lần (data/nav.csv)
+nav = true            # NAV: snapshot ngày quan sát + lịch sử có ngày hiệu lực từ nguồn
+nav_refresh_existing = true  # thử tải tiếp lịch sử từ ngày nguồn cuối; không đảm bảo nguồn đã cập nhật
 allocation = true     # cơ cấu tài sản: cổ phiếu/trái phiếu/tiền (data/allocation.csv)
 industry = true       # tỷ trọng theo ngành (data/industry.csv)
 bonds = true          # top trái phiếu nắm giữ + thay đổi khối lượng suy luận (data/bonds/*.csv)

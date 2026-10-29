@@ -164,9 +164,9 @@ def _extract_overview_summary(
         or board.get("Exchange")
         or s_info.get("Exchange")
         or r_info.get("Exchange")
-        or "HOSE"
+        or ""
     ).strip().upper()
-    exchange = EXCHANGE_CANONICAL_MAP.get(ex_raw, ex_raw)
+    exchange = EXCHANGE_CANONICAL_MAP.get(ex_raw, ex_raw) or None
 
     def _num(*candidates: Any) -> float | None:
         for c in candidates:
@@ -184,7 +184,7 @@ def _extract_overview_summary(
         "symbol": symbol,
         "exchange": exchange,
         "company_name": (
-            str(p_info.get("CompanyName") or p_info.get("FullName") or r_info.get("CompanyNameVi")
+            str(p_info.get("CompanyName") or p_info.get("CompanyNameVi") or p_info.get("FullName") or r_info.get("CompanyNameVi") or r_info.get("CompanyName")
                 or board.get("CompanyNameVi") or seed.get("company_name") or "").strip() or None
         ),
         "sector_name": sector_name,
@@ -198,16 +198,16 @@ def _extract_overview_summary(
         "sub_group_label": taxonomy["sub_group_label"],
         "peer_group_key": taxonomy["peer_group_key"],
         "split_from_financial_l1": taxonomy["split_from_financial_l1"],
-        "last_price": _num(s_info.get("MatchPrice"), s_info.get("LastMP"), board.get("LastMP"), seed.get("last_price")),
-        "ref_price": _num(s_info.get("RefPrice"), board.get("RefPrice"), seed.get("ref_price")),
+        "last_price": _num(s_info.get("MatchPrice"), s_info.get("LastMP"), s_info.get("LastP"), r_info.get("CurrentPrice"), board.get("LastMP"), seed.get("last_price")),
+        "ref_price": _num(s_info.get("RefPrice"), s_info.get("RefP"), board.get("RefPrice"), board.get("RefP"), seed.get("ref_price")),
         "market_cap": _num(s_info.get("MarketCap"), r_info.get("MarketCap"), board.get("MarketCap")),
         "pe": _num(s_info.get("PE"), r_info.get("PE"), board.get("PE")),
         "pb": _num(s_info.get("PB"), r_info.get("PB"), board.get("PB")),
         "roe": _num(r_info.get("ROE"), s_info.get("ROE")),
         "roa": _num(r_info.get("ROA"), s_info.get("ROA")),
-        "stock_rating": _num(rating_row.get("StockRating"), r_info.get("StockRating")),
-        "fundamental_score": _num(rating_row.get("Fundamental"), r_info.get("Fundamental")),
-        "technical_score": _num(rating_row.get("RelativeStrength"), r_info.get("RelativeStrength")),
+        "stock_rating": _num(rating_row.get("StockRating"), s_info.get("StockRating"), r_info.get("StockRating"), r_info.get("StockRatingPoint")),
+        "fundamental_score": _num(rating_row.get("Fundamental"), rating_row.get("FundamentalPoint"), s_info.get("FundamentalPoint"), r_info.get("Fundamental")),
+        "technical_score": _num(rating_row.get("RelativeStrength"), rating_row.get("TechnicalPoint"), s_info.get("TechnicalPoint"), r_info.get("RelativeStrength")),
     }
     return master, taxonomy
 

@@ -53,7 +53,7 @@ export function resolveDataUrl(file, moduleUrl = import.meta.url) {
   return new URL(`./data/${encodeURIComponent(file)}`, moduleUrl).href;
 }
 
-export async function loadDashboardData(fetcher = globalThis.fetch, moduleUrl = import.meta.url) {
+export async function loadDashboardData(fetcher = globalThis.fetch, moduleUrl = import.meta.url, retryMixed = true) {
   if (typeof fetcher !== 'function') throw new Error('fetch_unavailable');
   const manifestUrl = resolveDataUrl('manifest.json', moduleUrl);
   const manifestResponse = await fetcher(manifestUrl, { cache: 'no-store' });
@@ -104,6 +104,13 @@ export async function loadDashboardData(fetcher = globalThis.fetch, moduleUrl = 
       datasets[name] = { dataset: name, status: 'schema_mismatch', record_count: null, records: [], error: 'dataset_schema_mismatch' };
       return;
     }
+    // A deploy may occur between fetching the manifest and its datasets. Never
+    // mix generations; retry the complete snapshot once instead of calling it a schema migration.
+    if (typeof meta.generated_at === 'string' && typeof payload.generated_at === 'string'
+        && meta.generated_at !== payload.generated_at) {
+      datasets[name] = { dataset: name, status: 'mixed_generation', record_count: null, records: [], error: 'artifact_generation_mismatch' };
+      return;
+    }
     if ((meta.status && payload.status !== meta.status)
         || (Object.hasOwn(meta, 'record_count') && payload.record_count !== meta.record_count)) {
       datasets[name] = { dataset: name, status: 'schema_mismatch', record_count: null, records: [], error: 'manifest_dataset_mismatch' };
@@ -111,6 +118,9 @@ export async function loadDashboardData(fetcher = globalThis.fetch, moduleUrl = 
     }
     datasets[name] = normalizeDataset(payload, name);
   }));
+  if (retryMixed && Object.values(datasets).some(dataset => dataset.status === 'mixed_generation')) {
+    return loadDashboardData(fetcher, moduleUrl, false);
+  }
   return { manifest, datasets };
 }
 
@@ -201,15 +211,15 @@ function esc(value) {
 function records(data, key) { return data.datasets[key]?.records || []; }
 function envelope(data, key) { return data.datasets[key] || { status: 'unavailable', record_count: null, records: [] }; }
 function statusText(status, lang = getLang()) {
-  if (lang === 'en') return ({available:'Available', partial:'Partial', stale:'Possibly stale', empty:'Empty', missing:'Missing', unreadable:'Unreadable', schema_mismatch:'Schema mismatch', unsafe_path:'Unsafe path', unavailable:'Unavailable', malformed:'Malformed', valid:'Valid', invalid:'Invalid', unknown:'Unknown', not_applicable:'Not applicable'})[status] || status || 'Unknown';
+  if (lang === 'en') return ({available:'Available', partial:'Partial', stale:'Possibly stale', empty:'Empty', missing:'Missing', unreadable:'Unreadable', schema_mismatch:'Schema mismatch', mixed_generation:'Mixed export versions', unsafe_path:'Unsafe path', unavailable:'Unavailable', malformed:'Malformed', valid:'Valid', invalid:'Invalid', unknown:'Unknown', not_applicable:'Not applicable'})[status] || status || 'Unknown';
   return ({ available: 'Có dữ liệu', partial: 'Một phần', stale: 'Có thể cũ', empty: 'Tệp rỗng', missing: 'Chưa có',
-    unreadable: 'Không đọc được', schema_mismatch: 'Sai schema', unsafe_path: 'Đường dẫn không an toàn',
+    unreadable: 'Không đọc được', schema_mismatch: 'Sai schema', mixed_generation: 'Khác phiên bản export', unsafe_path: 'Đường dẫn không an toàn',
     unavailable: 'Chưa khả dụng', malformed: 'Dữ liệu sai định dạng', valid: 'Hợp lệ', invalid: 'Không hợp lệ',
     unknown: 'Chưa xác định', not_applicable: 'Chưa áp dụng' })[status] || status || 'Chưa xác định';
 }
 function statusTone(status) {
   if (['invalid', 'unreadable', 'schema_mismatch', 'unsafe_path', 'malformed'].includes(status)) return 'error';
-  if (['partial', 'stale', 'warning', 'issues_found'].includes(status)) return 'warning';
+  if (['partial', 'stale', 'warning', 'issues_found', 'mixed_generation'].includes(status)) return 'warning';
   if (['available', 'valid'].includes(status)) return 'ok';
   return 'neutral';
 }
@@ -224,7 +234,8 @@ function datasetStatusNotice(dataset, label) {
       partial: ['Incomplete data', rejectedRows ? `${label}: ${integer(rejectedRows)} malformed records were excluded.` : countMismatch ? `${label}: declared record count does not match valid records.` : `${label} has partial coverage or a bounded window.`, 'warning'],
       stale: ['Data may be stale', `${label} was flagged stale; review dates and SLA.`, 'warning'],
       unreadable: ['Unreadable data', `${label} cannot be read; missing values are not zero.`, 'error'],
-      schema_mismatch: ['Schema mismatch', `${label} does not match the expected schema.`, 'error'],
+      schema_mismatch: ['Schema mismatch', `${label} does not match the expected schema or manifest.`, 'error'],
+      mixed_generation: ['Mixed export versions', `${label} and the manifest are from different exports. The dashboard retried once; reload after deployment finishes.`, 'warning'],
       unsafe_path: ['Unsafe path', `${label} was not exported due to an unsafe path.`, 'error'],
       malformed: ['Malformed envelope', `${label} does not have a valid data structure.`, 'error'],
       unavailable: ['Artifact unavailable', `${label} could not be loaded; retry or check the Pages build.`, 'error'],
@@ -241,7 +252,8 @@ function datasetStatusNotice(dataset, label) {
         : `${label} chỉ có một phần dữ liệu hoặc bị giới hạn theo coverage/window.`, 'warning'],
     stale: ['Dữ liệu có thể cũ', `${label} được gắn stale bởi policy nguồn; hãy kiểm tra ngày và SLA trước khi sử dụng.`, 'warning'],
     unreadable: ['Không đọc được dữ liệu', `${label} tồn tại nhưng không đọc được; không tự thay bằng giá trị 0.`, 'error'],
-    schema_mismatch: ['Schema không khớp', `${label} không khớp schema dự kiến; cần xử lý migration tường minh.`, 'error'],
+    schema_mismatch: ['Schema không khớp', `${label} không khớp schema hoặc manifest; cần kiểm tra artifact trước khi migration.`, 'error'],
+    mixed_generation: ['Khác phiên bản export', `${label} và manifest được tạo ở các lần export khác nhau. Dashboard đã thử lại; hãy tải lại sau khi deploy hoàn tất.`, 'warning'],
     unsafe_path: ['Đường dẫn không an toàn', `${label} không được export vì đường dẫn không an toàn.`, 'error'],
     malformed: ['Envelope sai định dạng', `${label} không có cấu trúc dữ liệu hợp lệ.`, 'error'],
     unavailable: ['Không tải được artifact', `${label} JSON tĩnh không khả dụng; thử tải lại hoặc kiểm tra Pages build.`, 'error'],

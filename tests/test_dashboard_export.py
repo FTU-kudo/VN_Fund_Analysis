@@ -454,3 +454,13 @@ def test_bilingual_export_is_additive_and_preserves_original_event_hash(tmp_path
     assert summary['freshness_policy_en'] and summary['freshness_policy_vi']
     pipeline = read_json(output / 'pipeline_status.json')['summary']
     assert pipeline['status_explanation_en'] and pipeline['status_explanation_vi']
+
+
+def test_inventory_date_only_does_not_become_a_fabricated_timestamp(tmp_path):
+    data = tmp_path / 'data'
+    output = tmp_path / 'output'
+    write_frame(data / 'nav.csv', [{'fund':'F1', 'date':'2025-10-31', 'nav':100}])
+    export_dashboard(data, output, generated_at=GENERATED_AT, reference_date=REFERENCE_DATE)
+    summaries = read_json(output / 'data_quality_summary.json')['summary']['datasets']
+    nav = next(row for row in summaries if row['dataset'] == 'nav_history')
+    assert nav['latest_date'] == '2025-10-31'
