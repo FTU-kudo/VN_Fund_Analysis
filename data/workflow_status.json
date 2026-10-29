@@ -2,11 +2,11 @@
   "budget_status": "ok",
   "collector_exit_code": 0,
   "conclusion": "success",
-  "recorded_at": "2026-10-28T07:11:55Z",
+  "recorded_at": "2026-10-29T06:50:21Z",
   "schema_version": "1.0.0",
   "status_scope": "collector_budget",
   "status_source": "workflow_step",
   "status_updated_at": null,
-  "trigger": "schedule",
+  "trigger": "workflow_dispatch",
   "workflow": "daily"
 }

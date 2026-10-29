@@ -1,5 +1,5 @@
 {
-  "date": "2026-10-28",
+  "date": "2026-10-29",
   "n_total": 70,
   "n_ok": 70,
   "n_failed": 0,
@@ -8,14 +8,20 @@
   "n_baseline": 0,
   "n_empty_holdings": 1,
   "n_bond_changed": 0,
-  "n_nav_funds": 11,
+  "n_nav_funds": 70,
   "n_nav_history_failed": 0,
+  "n_nav_history_empty": 11,
+  "n_nav_history_future_skipped": 0,
+  "n_nav_history_no_in_range": 0,
+  "n_nav_history_out_of_range_rows": 47062,
+  "n_nav_history_rows_accepted": 59,
+  "nav_history_max_effective_date": "2025-10-31",
   "n_nav_invalid": 0,
   "n_quality_rejected": 0,
   "n_quality_errors": 0,
   "n_quality_warnings": 607,
-  "n_quality_reports": 222,
-  "n_provenance_observations": 315,
+  "n_quality_reports": 281,
+  "n_provenance_observations": 1981,
   "n_provenance_write_failed": 0,
   "failed": [],
   "by_class": {
@@ -28,5 +34,5 @@
     "allocation": 2
   },
   "nav_rows_new": 0,
-  "n_source_events": 82
+  "n_source_events": 141
 }
