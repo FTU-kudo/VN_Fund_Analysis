@@ -1,4 +1,4 @@
-# Thay đổi danh mục quỹ mở — 2026-10-30
+# Thay đổi danh mục quỹ mở — 2026-10-31
 
 - Quỹ kiểm tra đầy đủ: **70/70** (lỗi: 0; ghi một phần: 0)
 - Quỹ có kỳ công bố mới: **0** | Ghi mốc lần đầu: 0
