@@ -528,3 +528,49 @@ test('overview reads real provider field aliases from an existing static bundle'
   const html = renderYuantaStockTabs('AAA','overview',{status:'available',bundle},new URLSearchParams(),'en').body;
   for (const value of ['Example Company','125','81','87','BBB','8.27','123','4,321','1793173500','99']) assert.ok(html.includes(value), value);
 });
+
+test('redesigned overview keeps quality, workflow and NAV time semantics honest', async () => {
+  const { renderOverview, renderOverviewEnglish } = await import('../dashboard/app.mjs');
+  const wrap = (rows) => ({status:'available',record_count:rows.length,records:rows});
+  const data = {manifest:{source_coverage:{data_directory_exists:true}}, datasets:{
+    funds:wrap([{fund_id:'F1'}, {fund_id:'F2'}]),
+    holdings:wrap([{fund:'F1',ticker:'AAA'}, {fund:'F1',ticker:'BBB'}]),
+    nav_history:wrap([{fund:'F1',date:'2026-11-20',series_type:'nav_snapshot'}]),
+    portfolio_events:{status:'missing',record_count:null,records:[]},
+    data_quality_summary:{status:'available',record_count:1,records:[],summary:{
+      freshness_sla_thresholds_days:{allocation:45},
+      datasets:[{dataset:'allocation',status:'available',observed_rows:3,latest_date:'2026-10-01',freshness_assessment:'stale',age_days_at_reference:50,sla_days:45}],
+      issues:[{severity:'warning'}],
+    }},
+    pipeline_status:{status:'available',record_count:1,records:[],summary:{overall_workflow_status:'success',workflow_status_record:{status_scope:'final_workflow',status_updated_at:'2026-11-20T10:18:22Z'}}},
+  }};
+  const html = renderOverview(data);
+  assert.match(html, /overview-alert--warning/);
+  assert.match(html, /allocation \(50d &gt; 45d\)/);
+  assert.match(html, /Ngày quan sát; ngày hiệu lực chưa biết/);
+  assert.match(html, /20\/11\/2026/);
+  assert.match(html, /overview-metric--warning/);
+  assert.match(html, /overview-metric--success/);
+  assert.match(html, /overview-metric--muted/);
+  assert.match(html, /Thành công/);
+  assert.match(html, /không phải nhật ký lệnh xác nhận|thiếu không có nghĩa là không giao dịch/);
+  assert.match(html, /không xếp hạng hay đưa khuyến nghị mua\/bán/);
+  assert.match(html, /href="\?view=holdings" data-route/);
+  assert.doesNotMatch(html, /Ngày quan sát; ngày hiệu lực đã xác minh/);
+
+  const english = renderOverviewEnglish(data);
+  assert.match(english, /Observation date; effective date unknown/);
+  assert.match(english, /Nov 20, 2026/);
+  assert.match(english, /does not rank funds/);
+  assert.match(english, /overview-metric--success/);
+  assert.match(english, /Exceeds SLA/);
+
+  data.datasets.pipeline_status.summary.overall_workflow_status = 'unknown_not_exported';
+  data.datasets.data_quality_summary.record_count = null;
+  const unknown = renderOverview(data);
+  assert.match(unknown, /Chưa xác minh/);
+  assert.doesNotMatch(unknown, /overview-metric--success/);
+  assert.match(unknown, /Cảnh báo chất lượng[\s\S]*?Chưa có dữ liệu/);
+  data.datasets.funds.status = 'unavailable';
+  assert.match(renderOverview(data), /overview-alert--error/);
+});
