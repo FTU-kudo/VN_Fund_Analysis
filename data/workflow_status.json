@@ -2,7 +2,7 @@
   "budget_status": "warn",
   "collector_exit_code": 0,
   "conclusion": "success",
-  "recorded_at": "2026-11-20T10:18:12Z",
+  "recorded_at": "2026-11-20T11:05:17Z",
   "schema_version": "1.0.0",
   "status_scope": "collector_budget",
   "status_source": "workflow_step",

@@ -1,10 +1,10 @@
 # Thay đổi danh mục quỹ mở — 2026-11-20
 
 - Quỹ kiểm tra đầy đủ: **73/73** (lỗi: 0; ghi một phần: 0)
-- Quỹ có kỳ công bố mới: **45** | Ghi mốc lần đầu: 0
+- Quỹ có kỳ công bố mới: **0** | Ghi mốc lần đầu: 0
 - Cảnh báo chất lượng dữ liệu: **1** quỹ cổ phiếu/cân bằng trả về danh mục rỗng; không suy ra là không nắm giữ.
 - Validation: **293** report; 0 lỗi cứng; 609 cảnh báo; 0 dataset phụ bị từ chối.
-- Provenance: **1972** observation rows appended; observed/published times không biết được giữ trống, không suy ra từ kỳ hiệu lực.
+- Provenance: **0** observation rows appended; observed/published times không biết được giữ trống, không suy ra từ kỳ hiệu lực.
 - Source trace: **147** request events appended; trạng thái này không xác nhận điều khoản sử dụng hoặc độ đầy đủ của nguồn.
 - Bảng bổ sung trả rỗng (allocation: 3, industry: 28); snapshot cũ được giữ lại, không xem là dữ liệu hiện tại hoặc tỷ trọng 0.
 
