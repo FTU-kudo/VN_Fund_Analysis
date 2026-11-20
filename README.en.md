@@ -35,6 +35,12 @@ python scripts/analyze_reaction.py --lang en --peak 2026-05-07
 
 Daily reports are `reports/latest.md` and, when there are events or baselines, `reports/YYYY-MM-DD.md`. With `--lang both`, the Vietnamese report uses these paths and the English version uses `.en.md`. Telegram notifications, when configured, follow the selected language. Never add credentials to source control.
 
+### Refresh fund data on demand
+
+The Daily collector already runs at 08:30 ICT. Once merged to `main`, use **Actions → Refresh fund data now → Run workflow → main** to run the same full, writing collector with its budget checks and shared concurrency lock. Actions requires repository write permission. Pages rebuilds after the refresh completes successfully or fails; verify both workflows, `data/last_run.json` and source events. A green run does not prove all funds or sources provided fresh data.
+
+“Available” means readable data exists, not that it is fresh; “No SLA” means no threshold is configured. The latest date is an aggregate, not a per-fund guarantee. Holdings freshness uses `update_date` (falling back to `observed_date` when absent), allocation uses `report_date`, historical NAV uses source dates and NAV snapshots use observation dates. None is an inferred publication time. A refresh cannot invent disclosures, convert snapshots into source NAV history, or turn Top-N into full holdings. Full holdings must be imported separately from permitted official disclosures using `scripts/import_full_holdings.py`. Inspect NAV-history empty/failure counts, new rows and source events when history remains stale.
+
 ### Interpreting changes
 
 * `BUY` / `SELL` are **inferred position increases/decreases**, based on volume adjusted by a median fund-scale proxy. They are not trade executions or order records.

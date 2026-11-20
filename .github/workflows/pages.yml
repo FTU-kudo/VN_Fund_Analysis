@@ -12,6 +12,7 @@ on:
       - "requirements.txt"
       - "tests/**"
       - ".github/workflows/daily.yml"
+      - ".github/workflows/refresh_fund_data.yml"
       - ".github/workflows/pages.yml"
       - ".github/workflows/yuanta_scan.yml"
   pull_request:
@@ -25,12 +26,13 @@ on:
       - "requirements.txt"
       - "tests/**"
       - ".github/workflows/daily.yml"
+      - ".github/workflows/refresh_fund_data.yml"
       - ".github/workflows/pages.yml"
       - ".github/workflows/yuanta_scan.yml"
   # Daily's GITHUB_TOKEN commit does not trigger a second push workflow.
-  # Rebuild Pages whenever the daily workflow finishes on the default branch (success or failure with updated workflow_status.json).
+  # Rebuild after either full collector entry point finishes on the default branch.
   workflow_run:
-    workflows: ["Daily fund holdings check (all funds)"]
+    workflows: ["Daily fund holdings check (all funds)", "Refresh fund data now"]
     types: [completed]
   workflow_dispatch:
 
