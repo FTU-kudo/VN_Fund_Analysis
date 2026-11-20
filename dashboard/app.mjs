@@ -428,7 +428,7 @@ function updateParams(values, { replace = false } = {}) {
   renderCurrent();
 }
 function tableHtml(headers, body, options = {}) {
-  const { sort = '', direction = 'asc', className = '' } = options;
+  const { sort = '', direction = 'asc', className = '', focusable = false } = options;
   const head = headers.map((header) => {
     const sorted = sort === header.key;
     const aria = sorted ? (direction === 'asc' ? 'ascending' : 'descending') : 'none';
@@ -436,7 +436,7 @@ function tableHtml(headers, body, options = {}) {
     const label = header.sortable === false ? esc(header.label) : `<button type="button" data-sort="${esc(header.key)}" aria-label="${esc(t(getLang(), 'sort_by', {label: header.label}))}">${esc(header.label)}${arrow}</button>`;
     return `<th class="${header.numeric ? 'numeric' : ''}" aria-sort="${aria}">${label}</th>`;
   }).join('');
-  return `<div class="table-wrap ${className}"><table><thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="${headers.length}" class="no-results">${esc(t(getLang(), 'no_matching_records'))}</td></tr>`}</tbody></table></div>`;
+  return `<div class="table-wrap ${className}"${focusable ? ' tabindex="0"' : ''}><table><thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="${headers.length}" class="no-results">${esc(t(getLang(), 'no_matching_records'))}</td></tr>`}</tbody></table></div>`;
 }
 function paginationHtml(result) {
   const start = result.total === 0 ? 0 : (result.page - 1) * result.pageSize + 1;
@@ -470,103 +470,131 @@ function setPageChrome(view) {
   });
 }
 
-export function renderOverviewEnglish(data) {
-  const funds = envelope(data, 'funds'), holdings = envelope(data, 'holdings'), events = envelope(data, 'portfolio_events');
-  const nav = records(data, 'nav_history'), quality = envelope(data, 'data_quality_summary').summary || {}, pipeline = envelope(data, 'pipeline_status').summary || {};
-  const snapshots = nav.filter(row => row.series_type === 'nav_snapshot' && row.date);
-  const history = nav.filter(row => row.series_type === 'nav_history' && row.date);
-  const observed = snapshots.map(row => row.date).sort().at(-1), sourceDate = history.map(row => row.date).sort().at(-1);
-  const latest = observed || sourceDate;
-  const basis = observed ? 'Observation date; effective date unknown' : sourceDate ? 'Source NAV date; publication time unknown' : 'No recorded NAV date';
-  const fundCount = new Set(records(data, 'holdings').map(row => row.fund).filter(Boolean)).size;
-  const stale = (quality.datasets || []).filter(item => item.freshness_assessment === 'stale');
-  const failed = Object.values(data.datasets || {}).filter(item => ['unavailable','malformed'].includes(item.status));
-  const banner = failed.length ? notice('Some static artifacts are unavailable', `${failed.map(item => item.dataset).join(', ')} could not be loaded or parsed.`, 'error') : !data.manifest?.source_coverage?.data_directory_exists ? notice('Data archive unavailable', 'data/ was missing at export; no illustrative values are generated.', 'warning') : stale.length ? notice('Datasets exceed freshness SLA', `${stale.map(item => `${item.dataset} (${item.age_days_at_reference}d > ${item.sla_days}d)`).join(', ')}. Source reporting may lag observation.`, 'warning') : notice('Interpret freshness carefully', 'Observation and effective dates remain separate. Publication time is not inferred.', '');
-  const rows = (quality.datasets || []).slice(0,8).map(item => {const fresh = formatFreshness(item,'en'); return `<tr><td><span class="mono">${esc(item.dataset)}</span></td><td>${badge(statusText(item.status,'en'),statusTone(item.status))}</td><td class="numeric">${item.observed_rows == null ? 'Not available' : integer(item.observed_rows)}</td><td>${item.latest_date ? esc(dateText(item.latest_date)) : 'Not recorded'}</td><td>${badge(fresh.label,fresh.tone,fresh.detail)}</td></tr>`;}).join('');
-  const table = rows ? tableHtml([{key:'dataset',label:'Dataset',sortable:false},{key:'status',label:'Status',sortable:false},{key:'observed_rows',label:'Rows read',numeric:true,sortable:false},{key:'latest_date',label:'Latest date',sortable:false},{key:'freshness_assessment',label:'Freshness',sortable:false}],rows) : emptyPanel('No inventory','Dataset metadata is not available.','⌁');
-  const warningCount = envelope(data, 'data_quality_summary').record_count == null ? 'Not available' : integer((quality.issues || []).filter(issue => issue.severity === 'warning').length);
-  const activity = pipeline.latest_source_request?.completed_at ? dateTimeText(pipeline.latest_source_request.completed_at) : 'Not recorded';
-  return `${pageIntro('OVERVIEW','Fund research data','Explore saved data, provenance and limitations. This research tool does not rank funds or provide investment recommendations.')}${banner}<div class="freshness-strip"><div class="freshness-main"><span class="freshness-mark" aria-hidden="true">◷</span><div><strong>Data freshness</strong><small>${esc(basis)}</small></div></div><div class="freshness-date">${esc(latest ? dateText(latest) : 'Not available')}</div></div><div class="metric-grid">
-  ${metric('Funds in catalogue', funds.record_count == null ? 'Not available' : integer(funds.record_count), 'Observed fund codes in funds.csv','▤')}
-  ${metric('Funds with holdings snapshots', holdings.record_count == null ? 'Not available' : integer(fundCount), 'Latest saved snapshot; Top-N is not a complete portfolio','⌗')}
-  ${metric('Latest NAV date', latest ? dateText(latest) : 'Not available', basis,'◷')}
-  ${metric('Latest holdings snapshot rows', holdings.record_count == null ? 'Not available' : integer(holdings.record_count), 'Latest snapshot per fund and source scope','≡')}
-  ${metric('Portfolio events in export', events.record_count == null ? 'Not available' : integer(events.record_count), events.status === 'missing' ? 'Changes require comparable snapshots and a persisted event journal; missing is not zero' : 'Observed or inferred changes, not confirmed orders','⇄')}
-  ${metric('Quality warnings', warningCount, 'Inventory findings are not proof of pipeline failure','◎')}
-  ${metric('Last verified workflow outcome', ['success','failure','cancelled','skipped'].includes(pipeline.overall_workflow_status) ? pipeline.overall_workflow_status : 'Unverified', pipeline.workflow_status_record?.status_scope === 'final_workflow' ? `GitHub update: ${dateTimeText(pipeline.workflow_status_record.status_updated_at)}` : `Latest request: ${activity}`,'⌁')}
-  ${metric('Confirmed transactions','Not available','No transaction-level blotter in this project','—')}
-  </div><div class="overview-grid">${panel('Dataset status','Inventory from existing files; missing does not mean zero.',table)}<div class="stacked-panels">${panel('Research shortcuts','Open a research view, not a trading signal.', '<div class="shortcut-list"><a href="?view=funds" data-route>Explore funds <span>→</span></a><a href="?view=holdings" data-route>Portfolio events <span>→</span></a><a href="?view=stocks" data-route>Stock research <span>→</span></a><a href="?view=quality" data-route>Data quality <span>→</span></a></div>')}${panel('Current limitations','What the dashboard cannot conclude.', '<ul class="compact-list"><li>Holdings changes do not prove transactions.</li><li>Provider and mirror data are not independently verified.</li><li>Workflow outcomes require sanitized status records.</li><li>Yuanta stock data is available only when a static snapshot has been synced.</li></ul>')}</div></div>`;
+const OVERVIEW_ICONS = {
+  funds: '<path d="M4 6h16M6 10h12M8 14h8M10 18h4"/><rect x="4" y="3" width="16" height="18" rx="2"/>',
+  holdings: '<rect x="3" y="5" width="18" height="15" rx="2"/><path d="M3 9h18M8 5V3m8 2V3M7 13h4m-4 3h7"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4m10-4v4M3 10h18"/><circle cx="12" cy="15" r="2"/>',
+  rows: '<path d="M4 6h16M4 12h16M4 18h16"/><path d="M4 6h.01M4 12h.01M4 18h.01"/>',
+  events: '<path d="M4 8h15m-3-3 3 3-3 3M20 16H5m3-3-3 3 3 3"/>',
+  warning: '<path d="M12 3 2.7 19a1 1 0 0 0 .9 1.5h16.8a1 1 0 0 0 .9-1.5L12 3Z"/><path d="M12 9v4m0 3h.01"/>',
+  check: '<circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.3 2.4 4.7-5"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/>',
+  search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/>',
+  shield: '<path d="M12 3 4.5 6v5c0 5 3.3 8 7.5 10 4.2-2 7.5-5 7.5-10V6L12 3Z"/><path d="m9 12 2 2 4-4"/>',
+  arrow: '<path d="M5 12h14m-5-5 5 5-5 5"/>',
+};
+function overviewIcon(name) {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${OVERVIEW_ICONS[name] || OVERVIEW_ICONS.info}</svg>`;
 }
-
-function renderOverview(data) {
-  if (getLang() === 'en') return renderOverviewEnglish(data);
+function overviewMetric(label, value, basis, iconName, tone = 'core') {
+  // Missing values are not successful/zero observations, including core metrics.
+  if (['core', 'neutral'].includes(tone) && ['Chưa có dữ liệu', 'Not available'].includes(value)) tone = 'muted';
+  return `<article class="overview-metric overview-metric--${tone}"><div class="overview-metric-top"><span class="overview-metric-label">${esc(label)}</span><span class="overview-metric-icon">${overviewIcon(iconName)}</span></div><div class="overview-metric-value">${esc(value)}</div><p class="overview-metric-basis">${esc(basis)}</p></article>`;
+}
+function overviewShortcut(view, iconName, label, description) {
+  return `<a class="overview-shortcut" href="?view=${esc(view)}" data-route><span class="overview-shortcut-icon">${overviewIcon(iconName)}</span><span class="overview-shortcut-copy"><strong>${esc(label)}</strong><small>${esc(description)}</small></span><span class="overview-shortcut-arrow">${overviewIcon('arrow')}</span></a>`;
+}
+function renderOverviewPage(data, lang) {
+  const en = lang === 'en';
   const funds = envelope(data, 'funds');
   const holdings = envelope(data, 'holdings');
   const nav = records(data, 'nav_history');
   const events = envelope(data, 'portfolio_events');
-  const quality = envelope(data, 'data_quality_summary').summary || {};
+  const qualityEnvelope = envelope(data, 'data_quality_summary');
+  const quality = qualityEnvelope.summary || {};
   const pipeline = envelope(data, 'pipeline_status').summary || {};
-  const currentFundCount = new Set(records(data, 'holdings').map((row) => row.fund).filter(Boolean)).size;
-  const snapshotRows = nav.filter((row) => row.series_type === 'nav_snapshot' && row.date);
-  const latestObservation = snapshotRows.map((row) => row.date).sort().at(-1) || null;
-  const sourceNavRows = nav.filter((row) => row.series_type === 'nav_history' && row.date);
-  const latestNavSource = sourceNavRows.map((row) => row.date).sort().at(-1) || null;
-  const latestNavDate = latestObservation || latestNavSource;
-  const latestNavBasis = latestObservation ? 'Ngày quan sát; ngày hiệu lực chưa biết' : latestNavSource ? 'Ngày theo chuỗi nguồn; publication time chưa biết' : 'Ngày quan sát chưa được ghi nhận';
-  const warnings = (quality.issues || []).filter((issue) => issue.severity === 'warning').length;
-  const warningValue = envelope(data, 'data_quality_summary').record_count === null ? 'Chưa có dữ liệu' : integer(warnings);
-  const tracked = funds.record_count;
-  const statusNote = data.manifest?.source_coverage?.data_directory_exists
-    ? 'Các con số dưới đây chỉ phản ánh tệp trong archive tại thời điểm export; không đại diện độ phủ live.'
-    : 'Chưa có thư mục data/ trong repository. Không có dữ liệu sản xuất để tính metrics hoặc đưa ra kết quả đầu tư.';
-  const freshness = latestNavDate
-    ? `${dateText(latestNavDate)} · ${latestNavBasis}`
-    : 'Chưa có quan sát NAV trong archive';
-  const slaThresholds = quality.freshness_sla_thresholds_days || {};
-  const hasSla = Object.keys(slaThresholds).length > 0;
-  const staleDatasets = (quality.datasets || []).filter((item) => item.freshness_assessment === 'stale');
-  const fetchFailures = Object.values(data.datasets || {}).filter((dataset) => ['unavailable', 'malformed'].includes(dataset.status));
-  const overviewBanner = fetchFailures.length
-    ? notice('Một số artifact tĩnh không khả dụng', `${fetchFailures.map((item) => item.dataset).join(', ')} không tải/parse được; các view liên quan có thể thiếu dữ liệu.`, 'error')
-    : !data.manifest?.source_coverage?.data_directory_exists
-      ? notice('Archive dữ liệu chưa có', 'data/ không tồn tại trong checkout tại lần export. Bảng điều khiển đang hiển thị trạng thái thiếu dữ liệu, không tạo số liệu minh họa.', 'warning')
-      : staleDatasets.length
-        ? notice('Phát hiện bộ dữ liệu vượt ngưỡng SLA độ mới', `${staleDatasets.map((d) => `${d.dataset} (${d.age_days_at_reference}d > ${d.sla_days}d)`).join(', ')}. Kỳ công bố nguồn có thể trễ hơn ngày collector quan sát.`, 'warning')
-        : notice('Tính mới dữ liệu cần được diễn giải thận trọng', hasSla ? 'SLA độ mới đang bật theo cấu hình dự án; ngày quan sát và ngày hiệu lực vẫn tách riêng, không suy publication time từ effective date.' : 'Tuổi quan sát được hiển thị nhưng chưa có SLA để gắn nhãn stale. Ngày quan sát và ngày công bố được tách riêng; không suy publication time từ effective date.', '');
-  const datasetRows = (quality.datasets || []).slice(0, 8).map((item) => {
-    const fresh = formatFreshness(item, getLang());
-    return `<tr><td><span class="mono">${esc(item.dataset)}</span></td><td>${badge(statusText(item.status), statusTone(item.status))}</td><td class="numeric">${item.observed_rows == null ? 'Chưa có dữ liệu' : integer(item.observed_rows)}</td><td>${item.latest_date ? dateText(item.latest_date) : 'Chưa ghi nhận'}</td><td>${badge(fresh.label, fresh.tone, fresh.detail)}</td></tr>`;
+  const currentFundCount = new Set(records(data, 'holdings').map(row => row.fund).filter(Boolean)).size;
+  const observed = nav.filter(row => row.series_type === 'nav_snapshot' && row.date).map(row => row.date).sort().at(-1);
+  const sourceDate = nav.filter(row => row.series_type === 'nav_history' && row.date).map(row => row.date).sort().at(-1);
+  const latest = observed || sourceDate;
+  const date = value => formatDate(value, lang);
+  const int = value => formatInteger(value, lang);
+  const missing = en ? 'Not available' : 'Chưa có dữ liệu';
+  const basis = observed ? (en ? 'Observation date; effective date unknown' : 'Ngày quan sát; ngày hiệu lực chưa biết')
+    : sourceDate ? (en ? 'Source NAV date; publication time unknown' : 'Ngày theo chuỗi nguồn; publication time chưa biết')
+    : (en ? 'No recorded NAV date' : 'Ngày quan sát chưa được ghi nhận');
+  const stale = (quality.datasets || []).filter(item => item.freshness_assessment === 'stale');
+  const hasSla = Object.keys(quality.freshness_sla_thresholds_days || {}).length > 0;
+  const failed = Object.values(data.datasets || {}).filter(item => ['unavailable', 'malformed'].includes(item.status));
+  const archiveExists = data.manifest?.source_coverage?.data_directory_exists;
+  let alertTone = 'info', alertTitle, alertDetail;
+  if (failed.length) {
+    alertTone = 'error';
+    alertTitle = en ? 'Some static artifacts are unavailable' : 'Một số artifact tĩnh không khả dụng';
+    alertDetail = en ? `${failed.map(item => item.dataset).join(', ')} could not be loaded or parsed.` : `${failed.map(item => item.dataset).join(', ')} không tải/parse được; các view liên quan có thể thiếu dữ liệu.`;
+  } else if (!archiveExists) {
+    alertTone = 'warning';
+    alertTitle = en ? 'Data archive unavailable' : 'Archive dữ liệu chưa có';
+    alertDetail = en ? 'data/ was missing at export; no illustrative values are generated.' : 'data/ không tồn tại trong checkout tại lần export. Bảng điều khiển đang hiển thị trạng thái thiếu dữ liệu, không tạo số liệu minh họa.';
+  } else if (stale.length) {
+    alertTone = 'warning';
+    alertTitle = en ? 'Datasets exceed freshness SLA' : 'Phát hiện bộ dữ liệu vượt ngưỡng SLA độ mới';
+    const items = stale.map(item => `${item.dataset} (${item.age_days_at_reference}d > ${item.sla_days}d)`).join(', ');
+    alertDetail = en ? `${items}. Source reporting may lag observation.` : `${items}. Kỳ công bố nguồn có thể trễ hơn ngày collector quan sát.`;
+  } else {
+    alertTitle = en ? 'Interpret freshness carefully' : 'Tính mới dữ liệu cần được diễn giải thận trọng';
+    alertDetail = en ? 'Observation and effective dates remain separate. Publication time is not inferred.'
+      : hasSla ? 'SLA độ mới đang bật theo cấu hình dự án; ngày quan sát và ngày hiệu lực vẫn tách riêng, không suy publication time từ effective date.'
+        : 'Tuổi quan sát được hiển thị nhưng chưa có SLA để gắn nhãn stale. Ngày quan sát và ngày công bố được tách riêng; không suy publication time từ effective date.';
+  }
+  const warningCount = (quality.issues || []).filter(issue => issue.severity === 'warning').length;
+  const warningValue = qualityEnvelope.record_count == null ? missing : int(warningCount);
+  const warningTone = qualityEnvelope.record_count == null ? 'muted' : warningCount > 0 ? 'warning' : 'neutral';
+  const status = pipeline.overall_workflow_status;
+  const wfLabels = en ? {success:'Success', failure:'Failed', partial:'Partial', cancelled:'Cancelled', skipped:'Skipped'}
+    : {success:'Thành công', failure:'Thất bại', partial:'Một phần', cancelled:'Đã hủy', skipped:'Bỏ qua'};
+  const workflowValue = wfLabels[status] || (en ? 'Unverified' : 'Chưa xác minh');
+  const workflowTone = status === 'success' ? 'success' : status === 'failure' ? 'error' : status === 'partial' ? 'warning' : 'muted';
+  const activity = pipeline.latest_source_request?.completed_at ? date(pipeline.latest_source_request.completed_at) : (en ? 'Not recorded' : 'Chưa ghi nhận request');
+  const workflowBasis = pipeline.workflow_status_record?.status_scope === 'final_workflow'
+    ? `${en ? 'GitHub update' : 'GitHub cập nhật'}: ${pipeline.workflow_status_record.status_updated_at ? date(pipeline.workflow_status_record.status_updated_at) : (en ? 'Not recorded' : 'Chưa ghi nhận')}`
+    : `${en ? 'Latest request' : 'Request gần nhất'}: ${activity}`;
+  const datasetRows = (quality.datasets || []).slice(0, 8).map(item => {
+    const fresh = formatFreshness(item, lang);
+    return `<tr><td><span class="mono">${esc(item.dataset)}</span></td><td>${badge(statusText(item.status, lang), statusTone(item.status))}</td><td class="numeric">${item.observed_rows == null ? missing : int(item.observed_rows)}</td><td>${item.latest_date ? esc(date(item.latest_date)) : (en ? 'Not recorded' : 'Chưa ghi nhận')}</td><td>${badge(fresh.label, fresh.tone, fresh.detail)}</td></tr>`;
   }).join('');
-  const datasetsPanel = panel('Tình trạng các bộ dữ liệu', 'Kiểm kê từ tệp thực tế; “thiếu” không đồng nghĩa với giá trị bằng 0.', datasetRows
-    ? tableHtml([{ key: 'dataset', label: 'Dataset', sortable: false }, { key: 'status', label: 'Trạng thái', sortable: false }, { key: 'observed_rows', label: 'Số dòng đã đọc', numeric: true, sortable: false }, { key: 'latest_date', label: 'Ngày cuối', sortable: false }, { key: 'freshness_assessment', label: 'Freshness', sortable: false }], datasetRows)
-    : emptyPanel('Chưa có inventory', 'Manifest không có metadata dataset.', '⌁'));
-  const wfStatusMap = { success: 'Thành công', failure: 'Thất bại', partial: 'Một phần', cancelled: 'Đã hủy', skipped: 'Bỏ qua' };
-  const pipelineStatus = wfStatusMap[pipeline.overall_workflow_status] || 'Chưa xác minh';
-  const activity = pipeline.latest_source_request?.completed_at ? dateTimeText(pipeline.latest_source_request.completed_at) : 'Chưa ghi nhận request';
-  const freshnessSubtitle = hasSla
-    ? `${latestNavBasis} · ${staleDatasets.length ? `${integer(staleDatasets.length)} dataset vượt SLA` : 'các dataset có SLA đều trong ngưỡng'}`
-    : `${latestNavBasis} · stale chưa được đánh giá vì chưa cấu hình SLA`;
-  return `${pageIntro('TỔNG QUAN', 'Nền dữ liệu nghiên cứu quỹ', 'Theo dõi dữ liệu đã lưu, nguồn gốc và giới hạn diễn giải. Đây là công cụ nghiên cứu; không xếp hạng hay đưa khuyến nghị mua/bán.')}
-    ${overviewBanner}
-    <div class="freshness-strip"><div class="freshness-main"><span class="freshness-mark" aria-hidden="true">◷</span><div><strong>Độ mới của dữ liệu</strong><small>${esc(freshnessSubtitle)}</small></div></div><div class="freshness-date">${esc(latestNavDate ? dateText(latestNavDate) : 'Chưa có dữ liệu')}</div></div>
-    <div class="metric-grid">
-      ${metric('Quỹ có trong catalogue', tracked == null ? 'Chưa có dữ liệu' : integer(tracked), 'Căn cứ: funds.csv / mã quỹ thực sự quan sát', '▤')}
-      ${metric('Quỹ có snapshot danh mục', holdings.record_count == null ? 'Chưa có dữ liệu' : integer(currentFundCount), 'Snapshot cuối đã lưu; Top-N không phải danh mục đầy đủ', '⌗')}
-      ${metric('Ngày NAV quan sát gần nhất', latestNavDate ? dateText(latestNavDate) : 'Chưa có dữ liệu', latestNavBasis, '◷')}
-      ${metric('Dòng holdings snapshot gần nhất', holdings.record_count == null ? 'Chưa có dữ liệu' : integer(holdings.record_count), 'Chỉ snapshot mới nhất theo fund/source scope', '≡')}
-      ${metric('Portfolio events trong export', events.record_count == null ? 'Chưa có dữ liệu' : integer(events.record_count), events.status === 'missing' ? 'Cần snapshot so sánh và journal được lưu; thiếu không có nghĩa là không giao dịch' : 'Quan sát/suy luận; không phải nhật ký lệnh xác nhận', '⇄')}
-      ${metric('Cảnh báo chất lượng', warningValue, 'Finding ghi nhận trong inventory; không đồng nghĩa pipeline thất bại', '◎')}
-      ${metric('Kết quả workflow đã xác minh', pipelineStatus, pipeline.workflow_status_record?.status_scope === 'final_workflow' ? `GitHub cập nhật: ${dateTimeText(pipeline.workflow_status_record.status_updated_at)}` : `Request gần nhất: ${activity}`, '⌁')}
-      ${metric('Giao dịch đã xác nhận', 'Chưa có dữ liệu', 'Không có transaction-level blotter trong project hiện tại', '—')}
+  const table = datasetRows ? tableHtml([
+    {key:'dataset',label:'Dataset',sortable:false}, {key:'status',label:en ? 'Status' : 'Trạng thái',sortable:false},
+    {key:'observed_rows',label:en ? 'Rows read' : 'Số dòng đã đọc',numeric:true,sortable:false},
+    {key:'latest_date',label:en ? 'Latest date' : 'Ngày cuối',sortable:false}, {key:'freshness_assessment',label:'Freshness',sortable:false},
+  ], datasetRows, {focusable: true}) : emptyPanel(en ? 'No inventory' : 'Chưa có inventory', en ? 'Dataset metadata is not available.' : 'Manifest không có metadata dataset.', '⌁');
+  const intro = pageIntro(en ? 'OVERVIEW' : 'TỔNG QUAN', en ? 'Fund research data' : 'Nền dữ liệu nghiên cứu quỹ', en
+    ? 'Explore saved data, provenance and limitations. This research tool does not rank funds or provide investment recommendations.'
+    : 'Theo dõi dữ liệu đã lưu, nguồn gốc và giới hạn diễn giải. Đây là công cụ nghiên cứu; không xếp hạng hay đưa khuyến nghị mua/bán.');
+  const shortcuts = [
+    ['funds','funds',en ? 'Explore funds' : 'Khám phá quỹ',en ? 'Browse fund metadata and snapshots' : 'Xem thông tin và snapshot quỹ'],
+    ['holdings','events',en ? 'Portfolio events' : 'Xem sự kiện danh mục',en ? 'Review observed and inferred changes' : 'Theo dõi thay đổi được ghi nhận'],
+    ['stocks','search',en ? 'Stock research' : 'Nghiên cứu theo mã',en ? 'Explore holdings by ticker' : 'Tìm hiểu dữ liệu theo mã'],
+    ['quality','shield',en ? 'Data quality' : 'Kiểm tra chất lượng dữ liệu',en ? 'Inspect coverage and limitations' : 'Kiểm tra độ phủ và giới hạn'],
+  ].map(item => overviewShortcut(...item)).join('');
+  const limits = en
+    ? '<ul class="compact-list"><li>Holdings changes do not prove transactions.</li><li>Provider and mirror data are not independently verified.</li><li>Workflow outcomes require sanitized status records.</li><li>Yuanta stock data is available only when a static snapshot has been synced.</li></ul>'
+    : '<ul class="compact-list"><li>Dữ liệu công ty, định giá và thị trường chỉ có khi snapshot Yuanta được đồng bộ.</li><li>Thay đổi holdings không chứng minh giao dịch.</li><li>Fmarket/mirror chưa được xác minh độc lập.</li><li>Kết quả workflow được xác minh (nếu có) là lịch sử; không bảo đảm dữ liệu hiện tại.</li></ul>';
+  return `<div class="overview-page">${intro}
+    <div class="overview-alert overview-alert--${alertTone}" role="status"><span class="overview-alert-icon">${overviewIcon(alertTone === 'info' ? 'info' : 'warning')}</span><div class="overview-alert-copy"><strong>${esc(alertTitle)}</strong><p>${esc(alertDetail)}</p></div><a href="?view=quality" data-route class="overview-alert-link">${en ? 'View data quality' : 'Xem chất lượng dữ liệu'} ${overviewIcon('arrow')}</a></div>
+    <div class="overview-section-label"><span>${en ? 'DATA AT A GLANCE' : 'DỮ LIỆU TỔNG QUAN'}</span><span>${en ? 'Static archive' : 'Archive tĩnh'}</span></div>
+    <div class="overview-core-grid">
+      ${overviewMetric(en ? 'Funds in catalogue' : 'Quỹ có trong catalogue', funds.record_count == null ? missing : int(funds.record_count), en ? 'Observed fund codes in funds.csv' : 'Căn cứ: funds.csv / mã quỹ thực sự quan sát', 'funds')}
+      ${overviewMetric(en ? 'Funds with holdings snapshots' : 'Quỹ có snapshot danh mục', holdings.record_count == null ? missing : int(currentFundCount), en ? 'Latest saved snapshot; Top-N is not a complete portfolio' : 'Snapshot cuối đã lưu; Top-N không phải danh mục đầy đủ', 'holdings')}
+      ${overviewMetric(en ? 'Latest NAV date' : 'Ngày NAV quan sát gần nhất', latest ? date(latest) : missing, basis, 'calendar')}
+      ${overviewMetric(en ? 'Latest holdings snapshot rows' : 'Dòng holdings snapshot gần nhất', holdings.record_count == null ? missing : int(holdings.record_count), en ? 'Latest snapshot per fund and source scope' : 'Chỉ snapshot mới nhất theo fund/source scope', 'rows')}
+    </div>
+    <div class="overview-section-label overview-section-label--status"><span>${en ? 'STATUS & QUALITY' : 'TRẠNG THÁI & CHẤT LƯỢNG'}</span><span>${en ? 'Observed and inferred' : 'Quan sát & suy luận'}</span></div>
+    <div class="overview-status-grid">
+      ${overviewMetric(en ? 'Portfolio events in export' : 'Portfolio events trong export', events.record_count == null ? missing : int(events.record_count), events.status === 'missing' ? (en ? 'Changes require comparable snapshots and a persisted event journal; missing is not zero' : 'Cần snapshot so sánh và journal được lưu; thiếu không có nghĩa là không giao dịch') : (en ? 'Observed or inferred changes, not confirmed orders' : 'Quan sát/suy luận; không phải nhật ký lệnh xác nhận'), 'events', 'neutral')}
+      ${overviewMetric(en ? 'Quality warnings' : 'Cảnh báo chất lượng', warningValue, en ? 'Inventory findings are not proof of pipeline failure' : 'Finding ghi nhận trong inventory; không đồng nghĩa pipeline thất bại', 'warning', warningTone)}
+      ${overviewMetric(en ? 'Last verified workflow outcome' : 'Kết quả workflow đã xác minh', workflowValue, workflowBasis, status === 'success' ? 'check' : 'clock', workflowTone)}
+      ${overviewMetric(en ? 'Confirmed transactions' : 'Giao dịch đã xác nhận', missing, en ? 'No transaction-level blotter in this project' : 'Không có transaction-level blotter trong project hiện tại', 'info', 'muted')}
     </div>
     <div class="overview-grid">
-      ${datasetsPanel}
-      <div class="stacked-panels">
-        ${panel('Lối tắt nghiên cứu', 'Mở một view dữ liệu, không phải tín hiệu giao dịch.', `<div class="shortcut-list"><a href="?view=funds" data-route>Khám phá quỹ <span>→</span></a><a href="?view=holdings" data-route>Xem sự kiện danh mục <span>→</span></a><a href="?view=stocks" data-route>Nghiên cứu theo mã <span>→</span></a><a href="?view=quality" data-route>Kiểm tra chất lượng dữ liệu <span>→</span></a></div>`)}
-        ${panel('Giới hạn hiện tại', 'Những gì dashboard không thể kết luận.', `<ul class="compact-list"><li>Dữ liệu công ty, định giá và thị trường chỉ có khi snapshot Yuanta được đồng bộ.</li><li>Thay đổi holdings không chứng minh giao dịch.</li><li>Fmarket/mirror chưa được xác minh độc lập.</li><li>Kết quả workflow được xác minh (nếu có) là lịch sử; không bảo đảm dữ liệu hiện tại.</li></ul>`)}
-      </div>
-    </div>`;
+      ${panel(en ? 'Dataset status' : 'Tình trạng các bộ dữ liệu', en ? 'Inventory from existing files; missing does not mean zero.' : 'Kiểm kê từ tệp thực tế; “thiếu” không đồng nghĩa với giá trị bằng 0.', table + `<p class="overview-table-hint">${en ? 'Scroll horizontally to see all columns.' : 'Cuộn ngang để xem tất cả các cột.'}</p><a class="overview-panel-link" href="?view=quality" data-route>${en ? 'View all datasets' : 'Xem tất cả bộ dữ liệu'} ${overviewIcon('arrow')}</a>`, 'overview-datasets')}
+      <div class="stacked-panels">${panel(en ? 'Research shortcuts' : 'Lối tắt nghiên cứu', en ? 'Open a research view, not a trading signal.' : 'Mở một view dữ liệu, không phải tín hiệu giao dịch.', `<div class="overview-shortcuts">${shortcuts}</div>`, 'overview-shortcuts-panel')}${panel(en ? 'Current limitations' : 'Giới hạn hiện tại', en ? 'What the dashboard cannot conclude.' : 'Những gì dashboard không thể kết luận.', limits, 'overview-limitations')}</div>
+    </div>
+  </div>`;
 }
+export function renderOverviewEnglish(data) { return renderOverviewPage(data, 'en'); }
+export function renderOverview(data) { return renderOverviewPage(data, getLang()); }
 
 export function renderFundsEnglish(data, params) {
   const fundEnvelope = envelope(data, 'funds');
