@@ -75,3 +75,8 @@ observed_date;fund;name;short_name;mgmt_co;asset_code;fund_type;risk_level;manag
 2026-10-28;TCGF;QUỸ ĐẦU TƯ TĂNG TRƯỞNG THÀNH CÔNG;TCGF;TCAM;STOCK;Quỹ mở;Trung bình;1.5;100000.0;10.0;5.0;14:45;;https://tcam.com.vn/;52d69502c51b
 2026-10-28;UVDIF;QUỸ ĐẦU TƯ UNITED THU NHẬP NĂNG ĐỘNG VIỆT NAM;UVDIF;UOBAM VIETNAM;BALANCED;Quỹ mở;Trung bình;1.5;2000000.0;100.0;3.0;14:45;;https://www.uobam.com.vn/;abf7cf272e5e
 2026-10-28;VCAMDF;QUỸ ĐẦU TƯ BẢN VIỆT DISCOVERY;VCAMDF;VCAM;STOCK;Quỹ mở;Cao;1.5;100000.0;10.0;3.0;14:45;;https://vietcapital.com.vn/;ef7149372cf0
+2026-11-20;ACBCBOND;QUỸ ĐẦU TƯ TRÁI PHIẾU ACBC;ACBC-BOND;ACBC;BOND;Quỹ mở;Thấp;1.0;1000000.0;;5.0;14:45;;https://acbcapital.com.vn;f66af6ab172b
+2026-11-20;ACBCSFUND;QUỸ ĐẦU TƯ TRÁI PHIẾU THÔNG MINH ACBC;ACBC-SFUND;ACBC;BOND;Quỹ mở;Thấp;1.0;1000000.0;;5.0;14:45;;https://acbcapital.com.vn;1a136f73a2cf
+2026-11-20;DCBA;QUỸ ĐẦU TƯ CÂN BẰNG DC;DCBA;DCVFM;BALANCED;Quỹ mở;Trung bình;1.75;100000.0;10.0;3.0;14:30;2026-07-29;https://www.dragoncapital.com.vn;4900e21f6ffd
+2026-11-20;PBIF;QUỸ ĐẦU TƯ TĂNG TRƯỞNG LINH HOẠT PVCOM;PFGF;PVCB CAPITAL;BALANCED;Quỹ mở;Trung bình;1.3;1000000.0;;5.0;14:45;;https://pvcomcapital.com.vn;d21c799ee1ba
+2026-11-20;VCBFCFO;QUỸ ĐẦU TƯ TỐI ƯU DÒNG TIỀN VCBF;VCBF-CFO;VIETCOMBANK FUND;BOND;Quỹ mở;Thấp;0.2;100000.0;5.0;5.0;14:00;2026-09-15;https://www.vcbf.com/;9b51ff69bb22

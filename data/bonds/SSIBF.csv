@@ -1,3 +1,5 @@
 observed_date;fund;ticker;weight;rank;volume;price_k;asset_value;industry;update_date;content_hash
 2026-10-27;SSIBF;BCM12406;0.1701;1;140.0;;14006791680.0;Bất động sản;2026-10-08;b99ba9d32472
 2026-10-27;SSIBF;MSN123009;0.1123;2;92000.0;;9247410453.0;Thực phẩm - Đồ uống;2026-10-08;b99ba9d32472
+2026-11-20;SSIBF;MSN123009;0.1732;1;142000.0;;14195882000.0;Thực phẩm - Đồ uống;2026-11-12;1cbf54abec99
+2026-11-20;SSIBF;BCM12406;0.1709;2;140.0;;14003896150.0;Bất động sản;2026-11-12;1cbf54abec99

@@ -1,16 +1,16 @@
 {
-  "date": "2026-11-03",
-  "n_total": 70,
-  "n_ok": 70,
+  "date": "2026-11-20",
+  "n_total": 73,
+  "n_ok": 73,
   "n_failed": 0,
   "n_partial": 0,
-  "n_changed": 0,
+  "n_changed": 45,
   "n_baseline": 0,
   "n_empty_holdings": 1,
-  "n_bond_changed": 0,
-  "n_nav_funds": 70,
+  "n_bond_changed": 32,
+  "n_nav_funds": 73,
   "n_nav_history_failed": 0,
-  "n_nav_history_empty": 11,
+  "n_nav_history_empty": 14,
   "n_nav_history_future_skipped": 0,
   "n_nav_history_no_in_range": 0,
   "n_nav_history_out_of_range_rows": 47062,
@@ -19,20 +19,20 @@
   "n_nav_invalid": 0,
   "n_quality_rejected": 0,
   "n_quality_errors": 0,
-  "n_quality_warnings": 607,
-  "n_quality_reports": 281,
-  "n_provenance_observations": 1922,
+  "n_quality_warnings": 609,
+  "n_quality_reports": 293,
+  "n_provenance_observations": 1972,
   "n_provenance_write_failed": 0,
   "failed": [],
   "by_class": {
-    "BOND": 24,
+    "BOND": 27,
     "STOCK": 35,
     "BALANCED": 11
   },
   "empty_tables": {
-    "industry": 25,
-    "allocation": 2
+    "industry": 28,
+    "allocation": 3
   },
   "nav_rows_new": 0,
-  "n_source_events": 141
+  "n_source_events": 147
 }
