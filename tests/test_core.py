@@ -586,3 +586,86 @@ def test_reaction_english_preserves_gap_and_missing_flow(tmp_path):
     assert '+30.0%' not in report
     assert '| 2026-10 | 1 | 0 | NA | NA | NA | 100.0% |' in report
     assert 'not confirmed trades' in report
+
+
+def test_holdings_metadata_refresh_preserves_legacy_positions_without_fabricating_events(tmp_path):
+    from vnfa.pipeline import ingest_fund
+    from vnfa.store import content_hash
+
+    store = Store(tmp_path)
+    base = H([("AAA", .1, 1000, 10, 10e6), ("BBB", .2, 2000, 12, 24e6)])
+    # A legacy block has the original positional-only hash.
+    old = base.assign(observed_date="2026-10-01", fund="F", content_hash=content_hash(base))
+    old = old.reindex(columns=["observed_date", "fund", "ticker", "weight", "rank", "volume", "price_k", "asset_value", "industry", "update_date", "content_hash"])
+    old.to_csv(tmp_path / "holdings" / "F.csv", sep=";", index=False)
+    revised = base.copy()
+    revised["update_date"] = "2026-11-12"
+    revised["price_k"] += 1
+    revised["asset_value"] += 1000
+    cfg = load_config(None)
+    status, events = ingest_fund(store, {"code": "F"}, revised, "2026-11-20", cfg)
+    assert status == "refreshed" and events.empty
+    assert store.last_disclosure("F").update_date.tolist() == ["2026-11-12"] * 2
+    assert store.last_disclosure("F").content_hash.iloc[0].startswith(content_hash(base) + "-")
+    reopened = Store(tmp_path)
+    assert ingest_fund(reopened, {"code": "F"}, revised, "2026-11-20", cfg)[0] == "unchanged"
+    # Reverting on the same day must not merge distinct A/B/A blocks on reload.
+    assert ingest_fund(reopened, {"code": "F"}, base, "2026-11-20", cfg)[0] == "refreshed"
+    assert ingest_fund(reopened, {"code": "F"}, revised, "2026-11-20", cfg)[0] == "refreshed"
+    final = Store(tmp_path).last_disclosure("F")
+    assert len(final) == 2
+    assert final.update_date.tolist() == ["2026-11-12"] * 2
+    from vnfa.dashboard_export import _select_latest_snapshot
+    exported = _select_latest_snapshot(Store(tmp_path).read_holdings("F"))
+    assert len(exported) == 2 and set(exported.update_date) == {"2026-11-12"}
+    assert len(set(Store(tmp_path).read_holdings("F").content_hash)) == 4
+
+
+def test_metadata_only_refresh_does_not_hide_subsequent_position_change(tmp_path):
+    from vnfa.pipeline import ingest_fund
+
+    store = Store(tmp_path, subdir="bonds")
+    cfg = load_config(None)
+    base = H([("AAA", .1, 1000, 10, 10e6)])
+    meta = {"code": "F"}
+    assert ingest_fund(store, meta, base, "2026-10-01", cfg, "BOND")[0] == "baseline"
+    refreshed = base.assign(update_date="2026-11-01", price_k=11)
+    status, changes = ingest_fund(store, meta, refreshed, "2026-11-02", cfg, "BOND")
+    assert status == "refreshed" and changes.empty
+    changed = refreshed.assign(volume=1200)
+    status, changes = ingest_fund(Store(tmp_path, subdir="bonds"), meta, changed, "2026-11-03", cfg, "BOND")
+    assert status == "changed" and changes.iloc[0].action == "UNCONFIRMED?"
+    assert changes.iloc[0].asset_class == "BOND"
+
+
+def test_daily_reports_metadata_refresh_separately_from_position_changes(tmp_path):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("daily_metadata_refresh", "scripts/run_daily.py")
+    rd = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rd)
+
+    class Fake:
+        def __init__(self, price):
+            self.price = price
+
+        def list_products(self):
+            return [{"id": 1, "code": "F1", "shortName": "F1", "owner": {"shortName": "CO"},
+                     "dataFundAssetType": {"code": "STOCK"}}]
+
+        def product_detail(self, _):
+            return {"id": 1, "code": "F1", "owner": {"shortName": "CO"},
+                    "assetType": {"code": "STOCK"}, "topHoldings": [
+                        {"stockCode": "AAA", "netAssetPercent": 5, "price": self.price,
+                         "volume": 1000, "assetValue": self.price * 1000000,
+                         "updateAt": 1791447322898, "type": "STOCK"}]}
+
+    cfg = load_config(None)
+    store = Store(tmp_path)
+    rd.run(cfg, Fake(10), store, "2026-10-01")
+    info, changes = rd.run(cfg, Fake(11), store, "2026-10-02")
+    assert info["n_changed"] == 0 and info["n_holdings_refreshed"] == 1
+    assert info["n_bond_refreshed"] == 0 and changes.empty
+    assert float(Store(tmp_path).last_disclosure("F1").price_k.iloc[0]) == 11
+    report = rd.render_report("2026-10-02", changes, info, cfg)
+    assert "không đổi vị thế" in report and "không suy ra giao dịch" in report

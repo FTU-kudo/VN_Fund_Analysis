@@ -103,7 +103,7 @@ def run(cfg: dict, client, store: Store, observed_date: str, limit: int | None =
             dated = dated.dropna(subset=["fund", "date"])
             nav_last_dates = dated.groupby("fund")["date"].max().dt.strftime("%Y-%m-%d").to_dict()
     info = dict(n_total=len(funds), n_ok=0, n_failed=0, n_partial=0, n_changed=0, n_baseline=0,
-                n_empty_holdings=0, n_bond_changed=0, n_nav_funds=0, n_nav_history_failed=0,
+                n_empty_holdings=0, n_holdings_refreshed=0, n_bond_changed=0, n_bond_refreshed=0, n_nav_funds=0, n_nav_history_failed=0,
                 n_nav_history_empty=0, n_nav_history_future_skipped=0,
                 n_nav_history_no_in_range=0, n_nav_history_out_of_range_rows=0,
                 n_nav_history_rows_accepted=0, nav_history_max_effective_date=None,
@@ -233,6 +233,7 @@ def run(cfg: dict, client, store: Store, observed_date: str, limit: int | None =
             did_ingest = status != "empty"
             statuses = {"stock": status}
             info["n_changed"] += status == "changed"
+            info["n_holdings_refreshed"] += status == "refreshed"
             info["n_baseline"] += status == "baseline"
             if f["asset_code"] in {"STOCK", "BALANCED"} and holdings.empty:
                 info["n_empty_holdings"] += 1
@@ -243,6 +244,7 @@ def run(cfg: dict, client, store: Store, observed_date: str, limit: int | None =
             if col["bonds"]:
                 bstatus, bch = ingest_fund(bond_store, meta, parsed_bonds, observed_date, cfg, asset_class="BOND")
                 info["n_bond_changed"] += bstatus == "changed"
+                info["n_bond_refreshed"] += bstatus == "refreshed"
                 statuses["bond"] = bstatus
                 if not bch.empty:
                     all_changes.append(bch)
