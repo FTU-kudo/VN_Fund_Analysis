@@ -603,11 +603,12 @@ def test_compact_provenance_reconciles_nav_series_and_enforces_90d_budget(tmp_pa
     assert res2["already_compact"] is True and res2["after_sha256"] == res1["after_sha256"]
     assert select_as_of(ProvenanceStore(data, write=False).read_observations(), "2026-09-22").shape[0] == 2
 
-    # Repository's real data/ directory passes 90-day budget cleanly (< 25 MB warn, 0 point-level nav obs).
-    repo_budget = cb.evaluate_data_budget("data", warn_mb=25.0, fail_mb=80.0, horizon_days=90)
-    assert repo_budget["status"] == "ok"
-    assert repo_budget["point_level_nav_observations"] == 0
-    assert repo_budget["projected_total_mb"] < 25.0
+    # The unit test is independent of the growing live archive. Production
+    # data is checked separately by the workflow's data-budget gate.
+    post_budget = cb.evaluate_data_budget(data, horizon_days=90, funds_count=1)
+    assert post_budget["status"] == "ok"
+    assert post_budget["point_level_nav_observations"] == 0
+    assert post_budget["projected_total_mb"] < 25.0
 
 
 def test_run_daily_records_observed_date_and_nav_history_summary(tmp_path):
@@ -863,3 +864,36 @@ def test_daily_incremental_nav_refresh_preserves_old_and_bounds_provider_respons
     info, _ = rd.run(cfg, client, Store(other_root), "2025-10-01")
     assert info["n_nav_history_future_skipped"] == 1
     assert len(client.calls) == count
+
+
+def test_budget_projection_warns_without_blocking_and_hard_limits_remain_enforced(tmp_path):
+    import importlib.util
+    import subprocess
+    import sys
+
+    spec = importlib.util.spec_from_file_location("budget_stable", "scripts/check_data_budget.py")
+    cb = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cb)
+    data = tmp_path / "budget"
+    data.mkdir()
+    # Fixed, synthetic 12 MB fixture exceeds the 25 MB projected warning at
+    # the default horizon but remains below the current-size hard limit.
+    (data / "archive.bin").write_bytes(b"x" * 12_000_000)
+    projected = cb.evaluate_data_budget(data)
+    assert projected["status"] == "warn"
+    assert projected["total_mb"] == 12
+    assert projected["projected_total_mb"] > 25
+    assert projected["modeled_funds_count"] == 69
+    assert not projected["errors"]
+    cli = subprocess.run([sys.executable, "scripts/check_data_budget.py", "--data-dir", str(data)],
+                         capture_output=True, text=True, check=False)
+    assert cli.returncode == 0
+    assert json.loads(cli.stdout)["status"] == "warn"
+    # The actual file limit and current total-size fail threshold remain hard failures.
+    assert cb.evaluate_data_budget(data, max_single_file_mb=10)["status"] == "fail"
+    assert cb.evaluate_data_budget(data, fail_mb=11)["status"] == "fail"
+    # A projected breach of a hard threshold warns, not falsely fails current data.
+    forecast = cb.evaluate_data_budget(data, warn_mb=1, fail_mb=20)
+    assert forecast["status"] == "warn"
+    assert forecast["projected_total_mb"] > 20
+    assert any("ước tính" in warning for warning in forecast["warnings"])

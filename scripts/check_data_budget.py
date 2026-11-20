@@ -47,7 +47,7 @@ def evaluate_data_budget(
                 )
                 point_level_nav_obs = int((~is_summary).sum())
 
-    # Conservative 90-day growth model for 69 funds:
+    # Heuristic growth model; funds_count is an explicit assumption, not a census.
     # - Steady day (unchanged holdings/tables; daily source_runs + quality_reports + nav_snapshots + nav_snapshot obs):
     #   ~140 source_runs (~35 KB) + ~210 quality_reports (~45 KB) + ~69 nav_snapshots (~1.6 KB) + ~69 nav_snapshot obs (~30 KB)
     #   ~= 115 KB/day; plus ~2 monthly portfolio/allocation disclosure waves (~1.1 MB/month).
@@ -73,7 +73,11 @@ def evaluate_data_budget(
         )
     if projected_total_bytes > fail_mb * BYTES_PER_MB:
         warnings.append(
-            f"Dự phóng {horizon_days} ngày ({projected_total_bytes / BYTES_PER_MB:.2f} MB) tiệm cận/vượt ngưỡng {fail_mb:.1f} MB"
+            f"Dự phóng {horizon_days} ngày ({projected_total_bytes / BYTES_PER_MB:.2f} MB) vượt ngưỡng lỗi {fail_mb:.1f} MB; đây chỉ là ước tính"
+        )
+    elif projected_total_bytes > warn_mb * BYTES_PER_MB:
+        warnings.append(
+            f"Dự phóng {horizon_days} ngày ({projected_total_bytes / BYTES_PER_MB:.2f} MB) vượt ngưỡng cảnh báo {warn_mb:.1f} MB; đây chỉ là ước tính"
         )
 
     status = "fail" if errors else ("warn" if warnings else "ok")
@@ -87,6 +91,7 @@ def evaluate_data_budget(
         "largest_mb": round(largest_bytes / BYTES_PER_MB, 3),
         "point_level_nav_observations": point_level_nav_obs,
         "horizon_days": horizon_days,
+        "modeled_funds_count": funds_count,
         "projected_growth_mb": round(projected_growth_bytes / BYTES_PER_MB, 3),
         "projected_total_mb": round(projected_total_bytes / BYTES_PER_MB, 3),
         "thresholds_mb": {"warn": warn_mb, "fail": fail_mb, "max_single_file": max_single_file_mb},
