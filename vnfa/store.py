@@ -153,30 +153,45 @@ class Store:
         return self._last[fund]
 
     def append_if_changed(self, fund: str, holdings: pd.DataFrame, observed_date: str):
-        """Trả về (status, prev). status ∈ {'baseline','changed','unchanged','empty'}."""
+        """Return baseline/changed/refreshed/unchanged/empty and the previous block.
+
+        Position changes and other disclosure changes are separate: a new source date,
+        price or other field must be retained without implying a portfolio transaction.
+        The legacy positional hash remains unchanged; block identity includes the full
+        disclosure and its predecessor to distinguish same-day A→B→A revisions.
+        """
         if holdings is None or holdings.empty:
             return "empty", None
         try:
             observed_date = pd.Timestamp(observed_date).date().isoformat()
         except (TypeError, ValueError) as exc:
             raise ValueError(f"observed_date không hợp lệ: {observed_date!r}") from exc
-        h = content_hash(holdings)
+        position_hash = content_hash(holdings)
+        payload_columns = [column for column in HOLD_COLS if column not in {"observed_date", "fund", "content_hash"}]
+        payload_hash = TableStore._hash(holdings.reindex(columns=payload_columns))
         prev = self.last_disclosure(fund)
+        previous_block_hash = ""
         if prev is not None:
             previous_date = pd.to_datetime(prev.observed_date, errors="raise").max().date().isoformat()
             if observed_date < previous_date:
                 raise ValueError(f"Snapshot ngược thời gian cho {fund}: {observed_date} < {previous_date}")
-            if prev.content_hash.iloc[0] == h:
+            if TableStore._hash(prev.reindex(columns=payload_columns)) == payload_hash:
                 return "unchanged", prev
+            previous_block_hash = str(prev.content_hash.iloc[-1])
+        positions_changed = prev is not None and content_hash(prev) != position_hash
+        # Keep the legacy positional hash as a prefix; the suffix uniquely identifies
+        # the ordered disclosure revision even if a same-day payload reverts to A.
+        revision = hashlib.sha256(f"{observed_date}|{previous_block_hash}|{payload_hash}".encode()).hexdigest()[:16]
+        block_hash = f"{position_hash}-{revision}"
         block = holdings.copy()
         block.insert(0, "observed_date", observed_date)
         block.insert(1, "fund", fund)
-        block["content_hash"] = h
+        block["content_hash"] = block_hash
         aligned = block.reindex(columns=HOLD_COLS).reset_index(drop=True)
         if self.write:
             atomic_append_csv(aligned, self._hold_path(fund), sep=SEP)
         self._last[fund] = aligned
-        return ("baseline" if prev is None else "changed"), prev
+        return ("baseline" if prev is None else "changed" if positions_changed else "refreshed"), prev
 
     # ── nhật ký thay đổi ──
     def read_changes(self) -> pd.DataFrame:

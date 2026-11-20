@@ -62,11 +62,15 @@ def render_report(date: str, changes: pd.DataFrame, info: dict, cfg: dict, lang:
     s = summarize(changes, wl, cfg["report"]["top_n"])
     L = [f"# Thay đổi danh mục quỹ mở — {date}", ""]
     L.append(f"- Quỹ kiểm tra đầy đủ: **{info['n_ok']}/{info['n_total']}** (lỗi: {info['n_failed']}; ghi một phần: {info.get('n_partial', 0)})")
-    L.append(f"- Quỹ có kỳ công bố mới: **{info['n_changed']}** | Ghi mốc lần đầu: {info['n_baseline']}")
+    L.append(f"- Quỹ có vị thế Top-N thay đổi: **{info['n_changed']}** | Ghi mốc lần đầu: {info['n_baseline']}")
+    if info.get("n_holdings_refreshed", 0) or info.get("n_bond_refreshed", 0):
+        L.append(f"- Cập nhật trường công bố không đổi vị thế: cổ phiếu {info.get('n_holdings_refreshed', 'chưa biết')}, trái phiếu {info.get('n_bond_refreshed', 'chưa biết')}; không suy ra giao dịch.")
     if info.get("n_empty_holdings", 0):
         L.append(f"- Cảnh báo chất lượng dữ liệu: **{info['n_empty_holdings']}** quỹ cổ phiếu/cân bằng trả về danh mục rỗng; không suy ra là không nắm giữ.")
     if info.get("n_nav_invalid", 0) or info.get("n_nav_history_failed", 0):
         L.append(f"- NAV bổ sung: {info.get('n_nav_invalid', 0)} giá trị NAV không hợp lệ bị bỏ qua; {info.get('n_nav_history_failed', 0)} lỗi tải lịch sử.")
+    if info.get("n_nav_history_empty", 0) or (info.get("nav_rows_new") == 0 and info.get("n_nav_funds", 0)):
+        L.append(f"- Lịch sử NAV: {info.get('n_nav_history_empty', 'chưa biết')} phản hồi rỗng; {info.get('nav_rows_new', 'chưa biết')} dòng mới/điều chỉnh. Ngày nguồn mới nhất trong các dòng nhận: {info.get('nav_history_max_effective_date') or 'chưa biết'}; thành công không bảo đảm nguồn mới.")
     if info.get("n_quality_reports") is not None:
         L.append(f"- Validation: **{info.get('n_quality_reports', 0)}** report; {info.get('n_quality_errors', 0)} lỗi cứng; {info.get('n_quality_warnings', 0)} cảnh báo; {info.get('n_quality_rejected', 0)} dataset phụ bị từ chối.")
     if info.get("n_provenance_observations") is not None:
@@ -156,8 +160,10 @@ def _report_en(date: str, changes: pd.DataFrame, info: dict, cfg: dict) -> str:
     summary = summarize(changes, watchlist, cfg["report"]["top_n"])
     lines = [f"# Open-end fund portfolio changes — {date}", "",
              f"- Funds processed: **{info['n_ok']}/{info['n_total']}** (failed: {info['n_failed']}; partial: {info.get('n_partial', 0)})",
-             f"- Funds with a new reporting period: **{info['n_changed']}** | First baseline: {info['n_baseline']}"]
-    for field, label in (("n_empty_holdings", "Funds returning empty holdings (not proof of no holdings)"),
+             f"- Funds with Top-N position changes: **{info['n_changed']}** | First baseline: {info['n_baseline']}"]
+    for field, label in (("n_holdings_refreshed", "Stock disclosures refreshed without position changes"),
+                         ("n_bond_refreshed", "Bond disclosures refreshed without position changes"),
+                         ("n_empty_holdings", "Funds returning empty holdings (not proof of no holdings)"),
                          ("n_nav_invalid", "Invalid NAV values rejected"),
                          ("n_nav_history_failed", "NAV history fetch failures"),
                          ("n_quality_reports", "Validation reports"), ("n_quality_errors", "Validation errors"),
@@ -166,6 +172,8 @@ def _report_en(date: str, changes: pd.DataFrame, info: dict, cfg: dict) -> str:
                          ("n_source_events", "Source request events appended")):
         if info.get(field) is not None:
             lines.append(f"- {label}: **{info[field]}**")
+    if info.get("n_nav_history_empty", 0) or (info.get("nav_rows_new") == 0 and info.get("n_nav_funds", 0)):
+        lines.append(f"- NAV history: {info.get('n_nav_history_empty', 'unknown')} empty responses; {info.get('nav_rows_new', 'unknown')} new/revised rows. Latest accepted source date: {info.get('nav_history_max_effective_date') or 'unknown'}; success does not guarantee freshness.")
     if info.get("n_provenance_write_failed") or info.get("n_source_event_write_failed"):
         lines.append("- **Operational error:** provenance/quality/source-event sidecars were not fully written.")
     if info.get("empty_tables"):

@@ -21,7 +21,7 @@ Choose **VI** or **EN**, or use `?lang=vi` / `?lang=en`. Language preference is 
 
 ## Fmarket fund pipeline
 
-The daily collector tracks Fmarket equity, balanced and bond/MMF open-end funds. It collects the available Top-N equity/bond holdings, allocation, industry, fees, profile and NAV, then maintains semicolon-separated CSV snapshots. Actual fund counts and coverage must be read from the current inventory, not assumed from historical documentation. Source terms, access permissions and rate limits should be independently checked before live collection.
+The daily collector tracks Fmarket equity, balanced and bond/MMF open-end funds. It collects the available Top-N equity/bond holdings, allocation, industry, fees, profile and NAV, then maintains semicolon-separated CSV snapshots. Holdings store changes to source dates, prices and other disclosure fields even when positions are unchanged; metadata-only refreshes do not produce inferred trade events. Actual fund counts and coverage must be read from the current inventory, not assumed from historical documentation. Source terms, access permissions and rate limits should be independently checked before live collection.
 
 ```bash
 # Live network access; dry-run does not write files or send notifications.

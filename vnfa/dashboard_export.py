@@ -784,7 +784,7 @@ def _safe_last_run(root: Path, path: Path) -> tuple[dict[str, Any] | None, str]:
     if not isinstance(source, dict):
         return None, "schema_mismatch"
     count_fields = ("n_total", "n_ok", "n_failed", "n_partial", "n_changed", "n_baseline", "n_empty_holdings",
-                    "n_bond_changed", "n_nav_funds", "n_nav_history_failed", "n_nav_invalid", "n_quality_rejected",
+                    "n_holdings_refreshed", "n_bond_changed", "n_bond_refreshed", "n_nav_funds", "n_nav_history_failed", "n_nav_invalid", "n_quality_rejected",
                     "n_quality_errors", "n_quality_warnings", "n_quality_reports", "n_provenance_observations",
                     "n_source_events")
     if "date" not in source or not any(field in source for field in count_fields):

@@ -8,7 +8,7 @@ from .diff import CHANGE_COLUMNS, diff_holdings
 
 
 def ingest_fund(store, meta: dict, holdings: pd.DataFrame, observed_date: str, cfg: dict, asset_class: str = "STOCK"):
-    """Trả về (status, changes). status ∈ {'baseline','changed','unchanged','empty'}."""
+    """Trả về (status, changes). status ∈ {'baseline','changed','refreshed','unchanged','empty'}."""
     status, prev = store.append_if_changed(meta["code"], holdings, observed_date)
     if status != "changed" or prev is None:
         return status, pd.DataFrame(columns=CHANGE_COLUMNS)
